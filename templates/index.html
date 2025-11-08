@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>健身房人数监控</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css" />
+    <style>
+      :root {
+        --bg-primary: #050816;
+        --bg-secondary: #11172a;
+        --glass: rgba(255, 255, 255, 0.08);
+        --glass-strong: rgba(255, 255, 255, 0.14);
+        --border: rgba(255, 255, 255, 0.18);
+        --text: #f5f7ff;
+        --muted: rgba(245, 247, 255, 0.65);
+        --accent: #6e8bff;
+        --accent-strong: #9f7aea;
+        --success: #66d483;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        font-family: 'Outfit', 'Segoe UI', sans-serif;
+        background: radial-gradient(circle at top, rgba(110, 139, 255, 0.25), transparent 40%),
+          radial-gradient(circle at 20% 20%, rgba(159, 122, 234, 0.2), transparent 35%),
+          var(--bg-primary);
+        color: var(--text);
+        min-height: 100vh;
+        margin: 0;
+        padding: 0 0 48px;
+        position: relative;
+        overflow-x: hidden;
+      }
+
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(110, 139, 255, 0.18), rgba(102, 212, 131, 0.1));
+        pointer-events: none;
+        mix-blend-mode: screen;
+      }
+
+      h1 { text-align: center; margin: 32px 0 8px; letter-spacing: 0.1em; font-weight: 600; }
+      p { line-height: 1.6; }
+
+      .hero {
+        max-width: 980px;
+        margin: 0 auto 32px;
+        text-align: center;
+      }
+
+      .hero p { color: var(--muted); font-size: 16px; }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+
+      .layout {
+        display: flex;
+        gap: 32px;
+        align-items: flex-start;
+        max-width: 1500px;
+        width: 95vw;
+        margin: 0 auto;
+      }
+
+      .main-column { flex: 3 1 960px; }
+      .side-column { flex: 1 1 320px; min-width: 280px; }
+
+      .row { display: flex; gap: 24px; flex-wrap: wrap; }
+      .card {
+        flex: 1 1 calc(50% - 12px);
+        border-radius: 24px;
+        padding: 24px;
+        background: var(--glass);
+        border: 1px solid var(--border);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(18px);
+      }
+
+      .card h3 { margin-top: 0; font-weight: 600; letter-spacing: 0.03em; }
+      .side-column .card { position: sticky; top: 16px; }
+      .hour-card { flex: 1 1 100%; }
+
+      label { display: block; margin-top: 10px; font-weight: 500; color: var(--muted); font-size: 14px; }
+      input[type='text'],
+      input[type='number'] {
+        width: 100%;
+        margin-top: 6px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+      }
+
+      input:focus { outline: 2px solid rgba(110, 139, 255, 0.5); }
+
+      .actions { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+      button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 999px;
+        background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+        color: #fff;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      button:hover { transform: translateY(-1px) scale(1.01); box-shadow: 0 10px 30px rgba(110, 139, 255, 0.4); }
+      button:active { transform: scale(0.98); }
+
+      .hour-card-header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+      .hour-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+      .hour-tab { padding: 4px 12px; border-radius: 999px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.08); color: var(--muted); font-size: 13px; cursor: pointer; transition: all 0.15s ease; }
+      .hour-tab.active { background: rgba(110, 139, 255, 0.2); color: var(--text); border-color: rgba(110, 139, 255, 0.4); }
+
+      .people-grid { display: flex; flex-direction: column; gap: 12px; }
+      .person-card { display: flex; align-items: center; gap: 12px; border-radius: 16px; padding: 12px; background: var(--glass-strong); border: 1px solid rgba(255, 255, 255, 0.12); }
+      .person-card img,
+      .avatar-fallback { width: 56px; height: 56px; border-radius: 18px; object-fit: cover; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 22px; background: rgba(110, 139, 255, 0.2); color: var(--text); }
+      .person-card .name { font-size: 15px; font-weight: 600; }
+      .person-card .duration { font-size: 13px; color: var(--muted); }
+
+      .muted { color: var(--muted); font-size: 13px; }
+      footer { text-align: center; margin-top: 32px; color: var(--muted); font-size: 13px; }
+
+      canvas { background: rgba(0, 0, 0, 0.08); border-radius: 16px; padding: 12px; }
+
+      @media (max-width: 1100px) {
+        .layout { flex-direction: column; width: 90vw; }
+        .card { flex: 1 1 100%; }
+        .side-column .card { position: static; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hero">
+      <div class="badge">实时监控 · Liquid Glass UI</div>
+      <h1>健身房人数监控</h1>
+      <p>以液态玻璃风格呈现实时人数、趋势和当前在馆成员，帮助你快速洞察高峰时段。</p>
+    </div>
+    <div class="layout">
+      <div class="main-column">
+        <div class="row">
+          <div class="card">
+            <h3>实时曲线（最近一段时间）</h3>
+            <canvas id="lineChart" height="180"></canvas>
+          </div>
+          <div class="card">
+            <h3>按星期平均人数</h3>
+            <canvas id="weekdayChart" height="180"></canvas>
+          </div>
+        </div>
+        <div class="row">
+          <div class="card hour-card">
+            <div class="hour-card-header">
+              <h3>按小时平均人数</h3>
+              <div class="hour-tabs">
+                <button type="button" class="hour-tab active" data-day="all">全部</button>
+                <button type="button" class="hour-tab" data-day="0">周一</button>
+                <button type="button" class="hour-tab" data-day="1">周二</button>
+                <button type="button" class="hour-tab" data-day="2">周三</button>
+                <button type="button" class="hour-tab" data-day="3">周四</button>
+                <button type="button" class="hour-tab" data-day="4">周五</button>
+                <button type="button" class="hour-tab" data-day="5">周六</button>
+                <button type="button" class="hour-tab" data-day="6">周日</button>
+              </div>
+            </div>
+            <canvas id="hourChart" height="220"></canvas>
+          </div>
+          <div class="card">
+            <h3>配置</h3>
+            <form id="cfgForm">
+              <label>数据存储目录
+                <input id="storage_dir" type="text" placeholder="例如: data" />
+              </label>
+              <label>轮询间隔（分钟）
+                <input id="poll_interval_minutes" type="number" min="1" step="1" />
+              </label>
+              <label>门店 ID（shop_id）
+                <input id="shop_id" type="number" min="1" step="1" />
+              </label>
+              <label>API 基地址
+                <input id="api_base" type="text" />
+              </label>
+              <div class="actions">
+                <button type="submit">保存配置</button>
+                <button type="button" id="pollNow">立即抓取一次</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div class="side-column">
+        <div class="card current-card">
+          <h3>当前在馆成员 <span class="muted" id="snapshotTime"></span></h3>
+          <div id="currentPeople" class="people-grid"></div>
+          <p class="muted" id="currentEmpty">当前无人健身</p>
+        </div>
+      </div>
+    </div>
+    <footer>Liquid Glass UI · 前端 Chart.js · 后端 Flask + APScheduler · 数据 JSONL</footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+      Chart.defaults.color = '#f5f7ff';
+      Chart.defaults.borderColor = 'rgba(255,255,255,0.15)';
+
+      const lineCtx = document.getElementById('lineChart');
+      const weekdayCtx = document.getElementById('weekdayChart');
+      const hourCtx = document.getElementById('hourChart');
+      const currentPeopleEl = document.getElementById('currentPeople');
+      const currentEmptyEl = document.getElementById('currentEmpty');
+      const snapshotTimeEl = document.getElementById('snapshotTime');
+      const hourTabs = Array.from(document.querySelectorAll('.hour-tab'));
+
+      let lineChart, weekdayChart, hourChart;
+      let hourScope = 'all';
+      let hourData = { all: {}, byDay: {} };
+
+      function mkLine(labels, values) {
+        if (lineChart) lineChart.destroy();
+        lineChart = new Chart(lineCtx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{ label: '人数', data: values, borderColor: '#6e8bff', backgroundColor: 'rgba(110,139,255,0.2)', fill: true, tension: 0.35 }]
+          },
+          options: { responsive: true, plugins: { legend: { display: false } } }
+        });
+      }
+
+      function mkBar(ctx, labels, values, label) {
+        if (ctx === weekdayCtx && weekdayChart) weekdayChart.destroy();
+        if (ctx === hourCtx && hourChart) hourChart.destroy();
+        const chart = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets: [{ label, data: values, backgroundColor: '#66d483', borderRadius: 6 }] },
+          options: { responsive: true, plugins: { legend: { display: false } } }
+        });
+        if (ctx === weekdayCtx) weekdayChart = chart; else hourChart = chart;
+      }
+
+      async function fetchJSON(url, opts = {}) {
+        const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+        return await r.json();
+      }
+
+      function weekdayName(i) {
+        const names = ['一', '二', '三', '四', '五', '六', '日'];
+        return Number.isInteger(i) && i >= 0 && i < names.length ? names[i] : i;
+      }
+
+      function formatDuration(minutes = 0) {
+        const mins = Math.max(0, Math.round(minutes));
+        const hours = Math.floor(mins / 60);
+        const rest = mins % 60;
+        if (hours && rest) return `${hours}小时${rest}分钟`;
+        if (hours) return `${hours}小时`;
+        return `${rest}分钟`;
+      }
+
+      function renderCurrentPeople(data) {
+        if (!currentPeopleEl) return;
+        const list = data.current_people || [];
+        currentPeopleEl.innerHTML = '';
+        if (snapshotTimeEl) snapshotTimeEl.textContent = data.last_timestamp ? `(更新于 ${data.last_timestamp})` : '';
+        if (!list.length) {
+          currentEmptyEl.style.display = 'block';
+          return;
+        }
+        currentEmptyEl.style.display = 'none';
+        list.forEach(person => {
+          const card = document.createElement('div');
+          card.className = 'person-card';
+          const avatar = person.avatar;
+          if (avatar) {
+            const img = document.createElement('img');
+            img.src = avatar;
+            img.alt = person.name || '用户头像';
+            card.appendChild(img);
+          } else {
+            const fallback = document.createElement('div');
+            fallback.className = 'avatar-fallback';
+            fallback.textContent = (person.name || '匿')[0];
+            card.appendChild(fallback);
+          }
+          const info = document.createElement('div');
+          const nameEl = document.createElement('div');
+          nameEl.className = 'name';
+          nameEl.textContent = person.name || '匿名用户';
+          const durationEl = document.createElement('div');
+          durationEl.className = 'duration';
+          durationEl.textContent = `已停留 ${formatDuration(Number(person.minutes || 0))}`;
+          info.appendChild(nameEl);
+          info.appendChild(durationEl);
+          card.appendChild(info);
+          currentPeopleEl.appendChild(card);
+        });
+      }
+
+      function updateHourTabActive() {
+        hourTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.day === hourScope));
+      }
+
+      function renderHourChart() {
+        const dataset = hourScope === 'all' ? (hourData.all || {}) : (hourData.byDay[hourScope] || {});
+        const labels = [];
+        const values = [];
+        for (let h = 0; h < 24; h += 1) {
+          labels.push(`${String(h).padStart(2, '0')}:00`);
+          values.push(Number(dataset[String(h)] ?? 0));
+        }
+        const labelText = hourScope === 'all' ? '平均人数' : `周${weekdayName(Number(hourScope))}平均人数`;
+        mkBar(hourCtx, labels, values, labelText);
+      }
+
+      hourTabs.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.day || 'all';
+          if (hourScope !== target) {
+            hourScope = target;
+            updateHourTabActive();
+            renderHourChart();
+          }
+        });
+      });
+
+      async function refreshData() {
+        const data = await fetchJSON('/api/data');
+        const labels = (data.series || []).map(x => x.t.slice(5, 16));
+        const values = (data.series || []).map(x => x.people_num);
+        mkLine(labels, values);
+
+        const wkv = Object.entries(data.weekday_avg || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+        mkBar(weekdayCtx, wkv.map(([k]) => '周' + weekdayName(Number(k))), wkv.map(([_, v]) => v), '平均人数');
+
+        hourData = {
+          all: data.hour_avg || {},
+          byDay: data.weekday_hour_avg || {},
+        };
+        if (hourScope !== 'all' && !hourData.byDay[hourScope]) {
+          hourScope = 'all';
+          updateHourTabActive();
+        }
+        renderHourChart();
+
+        renderCurrentPeople(data);
+      }
+
+      async function loadConfig() {
+        const cfg = await fetchJSON('/api/config');
+        for (const k of ['storage_dir', 'poll_interval_minutes', 'shop_id', 'api_base']) {
+          const el = document.getElementById(k);
+          if (el && k in cfg) el.value = cfg[k];
+        }
+      }
+
+      document.getElementById('cfgForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const payload = {
+          storage_dir: document.getElementById('storage_dir').value,
+          poll_interval_minutes: Number(document.getElementById('poll_interval_minutes').value || 5),
+          shop_id: Number(document.getElementById('shop_id').value || 218),
+          api_base: document.getElementById('api_base').value,
+        };
+        await fetchJSON('/api/config', { method: 'POST', body: JSON.stringify(payload) });
+        alert('已保存配置');
+      });
+
+      document.getElementById('pollNow').addEventListener('click', async () => {
+        await fetchJSON('/api/poll', { method: 'POST' });
+        setTimeout(refreshData, 1000);
+      });
+
+      loadConfig().then(refreshData);
+      setInterval(refreshData, 60_000);
+    </script>
+  </body>
+</html>

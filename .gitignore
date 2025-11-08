@@ -1,0 +1,19 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / editor settings
+.idea/
+.vscode/
+
+# Local configuration & data
+config.json
+data/
+*.log
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
