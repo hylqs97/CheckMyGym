@@ -11,6 +11,9 @@ DEFAULT_CONFIG = {
     "poll_interval_minutes": 5,
     "shop_id": 218,
     "api_base": "http://106.55.236.110:8999",
+    "open_hour_start": 6,
+    "open_hour_end": 23,
+    "favorites": [],
 }
 
 
@@ -31,6 +34,8 @@ class ConfigManager:
         # merge defaults
         merged = DEFAULT_CONFIG.copy()
         merged.update(data or {})
+        if "favorites" not in merged:
+            merged["favorites"] = []
         self._config = merged
         # ensure storage dir exists
         os.makedirs(self._config["storage_dir"], exist_ok=True)
@@ -42,6 +47,8 @@ class ConfigManager:
         os.makedirs(storage, exist_ok=True)
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
+        if "favorites" not in cfg:
+            cfg["favorites"] = []
         self._config = cfg
 
 
