@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -7,11 +7,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sakura.css/css/sakura.css" />
     <style>
       :root {
         --bg-primary: #050816;
-        --bg-secondary: #11172a;
         --glass: rgba(255, 255, 255, 0.08);
         --glass-strong: rgba(255, 255, 255, 0.14);
         --border: rgba(255, 255, 255, 0.18);
@@ -23,6 +21,11 @@
       }
 
       * { box-sizing: border-box; }
+
+      html, body {
+        width: 100%;
+        max-width: none;
+      }
 
       body {
         font-family: 'Outfit', 'Segoe UI', sans-serif;
@@ -57,6 +60,25 @@
 
       .hero p { color: var(--muted); font-size: 16px; }
 
+      .notif-toggle {
+        margin-top: 16px;
+        padding: 10px 22px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        font-weight: 500;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .notif-toggle.enabled {
+        background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+        border-color: transparent;
+        box-shadow: 0 10px 30px rgba(110, 139, 255, 0.35);
+      }
+
       .badge {
         display: inline-flex;
         align-items: center;
@@ -74,9 +96,10 @@
         display: flex;
         gap: 32px;
         align-items: flex-start;
-        max-width: 1500px;
-        width: 95vw;
+        flex-wrap: nowrap;
+        width: min(1400px, 92vw);
         margin: 0 auto;
+        justify-content: center;
       }
 
       .main-column { flex: 3 1 960px; }
@@ -145,7 +168,7 @@
       canvas { background: rgba(0, 0, 0, 0.08); border-radius: 16px; padding: 12px; }
 
       @media (max-width: 1100px) {
-        .layout { flex-direction: column; width: 90vw; }
+        .layout { flex-direction: column; width: 92vw; }
         .card { flex: 1 1 100%; }
         .side-column .card { position: static; }
       }
@@ -155,7 +178,8 @@
     <div class="hero">
       <div class="badge">实时监控 · Liquid Glass UI</div>
       <h1>健身房人数监控</h1>
-      <p>以液态玻璃风格呈现实时人数、趋势和当前在馆成员，帮助你快速洞察高峰时段。</p>
+      <p>以液态玻璃风格呈现实时人数、趋势和当前在馆成员，帮助快速洞察高峰时段。</p>
+      <button type="button" id="notifyBtn" class="notif-toggle">启用低人流提醒</button>
     </div>
     <div class="layout">
       <div class="main-column">
@@ -224,6 +248,9 @@
       Chart.defaults.color = '#f5f7ff';
       Chart.defaults.borderColor = 'rgba(255,255,255,0.15)';
 
+      const OPEN_START_HOUR = 6;
+      const OPEN_END_HOUR = 23; // 23:00-06:00 关闭
+
       const lineCtx = document.getElementById('lineChart');
       const weekdayCtx = document.getElementById('weekdayChart');
       const hourCtx = document.getElementById('hourChart');
@@ -231,10 +258,22 @@
       const currentEmptyEl = document.getElementById('currentEmpty');
       const snapshotTimeEl = document.getElementById('snapshotTime');
       const hourTabs = Array.from(document.querySelectorAll('.hour-tab'));
+      const notifyBtn = document.getElementById('notifyBtn');
 
       let lineChart, weekdayChart, hourChart;
       let hourScope = 'all';
       let hourData = { all: {}, byDay: {} };
+      const NOTIFY_STORAGE_KEY = 'gym-notify-enabled';
+      let notifyEnabled = false;
+      let lastNotifyTime = 0;
+      const NOTIFY_THRESHOLD = 4;
+      const NOTIFY_COOLDOWN = 5 * 60 * 1000;
+
+      function isOpenHourFromTimestamp(ts) {
+        if (!ts) return true;
+        const hour = Number(ts.slice(11, 13));
+        return !Number.isNaN(hour) && hour >= OPEN_START_HOUR && hour < OPEN_END_HOUR;
+      }
 
       function mkLine(labels, values) {
         if (lineChart) lineChart.destroy();
@@ -317,6 +356,77 @@
         });
       }
 
+      function updateNotifyButton() {
+        if (!notifyBtn) return;
+        notifyBtn.textContent = notifyEnabled ? '已启用低人流提醒' : '启用低人流提醒';
+        notifyBtn.classList.toggle('enabled', notifyEnabled);
+      }
+
+      function persistNotifyPref(value) {
+        try {
+          if (value) {
+            localStorage.setItem(NOTIFY_STORAGE_KEY, '1');
+          } else {
+            localStorage.removeItem(NOTIFY_STORAGE_KEY);
+          }
+        } catch (err) {
+          console.warn('保存通知偏好失败', err);
+        }
+      }
+
+      function restoreNotifyPref() {
+        if (!('Notification' in window)) {
+          notifyEnabled = false;
+          updateNotifyButton();
+          return;
+        }
+        try {
+          const saved = localStorage.getItem(NOTIFY_STORAGE_KEY);
+          if (saved === '1' && Notification.permission === 'granted') {
+            notifyEnabled = true;
+          } else if (saved === '1' && Notification.permission !== 'granted') {
+            localStorage.removeItem(NOTIFY_STORAGE_KEY);
+            notifyEnabled = false;
+          }
+        } catch (err) {
+          console.warn('读取通知偏好失败', err);
+        }
+        updateNotifyButton();
+      }
+
+      restoreNotifyPref();
+
+      notifyBtn?.addEventListener('click', async () => {
+        if (!('Notification' in window)) {
+          alert('当前浏览器不支持通知');
+          return;
+        }
+        if (notifyEnabled) {
+          notifyEnabled = false;
+          persistNotifyPref(false);
+          updateNotifyButton();
+          return;
+        }
+        let permission = Notification.permission;
+        if (permission === 'default') {
+          try {
+            permission = await Notification.requestPermission();
+          } catch (err) {
+            console.error('通知授权失败', err);
+            alert('通知授权失败');
+            return;
+          }
+        }
+        if (permission !== 'granted') {
+          alert('浏览器未授予通知权限');
+          return;
+        }
+        notifyEnabled = true;
+        lastNotifyTime = 0;
+        persistNotifyPref(true);
+        updateNotifyButton();
+      });
+
       function updateHourTabActive() {
         hourTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.day === hourScope));
       }
@@ -325,7 +435,7 @@
         const dataset = hourScope === 'all' ? (hourData.all || {}) : (hourData.byDay[hourScope] || {});
         const labels = [];
         const values = [];
-        for (let h = 0; h < 24; h += 1) {
+        for (let h = OPEN_START_HOUR; h < OPEN_END_HOUR; h += 1) {
           labels.push(`${String(h).padStart(2, '0')}:00`);
           values.push(Number(dataset[String(h)] ?? 0));
         }
@@ -346,8 +456,9 @@
 
       async function refreshData() {
         const data = await fetchJSON('/api/data');
-        const labels = (data.series || []).map(x => x.t.slice(5, 16));
-        const values = (data.series || []).map(x => x.people_num);
+        const filteredSeries = (data.series || []).filter(item => isOpenHourFromTimestamp(item.t));
+        const labels = filteredSeries.map(x => x.t.slice(5, 16));
+        const values = filteredSeries.map(x => x.people_num);
         mkLine(labels, values);
 
         const wkv = Object.entries(data.weekday_avg || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
@@ -364,6 +475,28 @@
         renderHourChart();
 
         renderCurrentPeople(data);
+        maybeNotify(filteredSeries, data);
+      }
+
+      function maybeNotify(filteredSeries, data) {
+        if (!notifyEnabled || !('Notification' in window) || Notification.permission !== 'granted') {
+          return;
+        }
+        const latest = filteredSeries[filteredSeries.length - 1] || (data.series || []).slice(-1)[0];
+        if (!latest) return;
+        const people = Number(latest.people_num ?? latest.people ?? 0);
+        if (Number.isNaN(people)) return;
+        if (people <= NOTIFY_THRESHOLD) {
+          const now = Date.now();
+          if (now - lastNotifyTime < NOTIFY_COOLDOWN) return;
+          lastNotifyTime = now;
+          const body = `当前人数 ${people} 人，适合前往健身房。`;
+          try {
+            new Notification('健身房人数提醒', { body, tag: 'gym-low-occupancy' });
+          } catch (err) {
+            console.error('发送通知失败', err);
+          }
+        }
       }
 
       async function loadConfig() {
