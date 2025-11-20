@@ -44,18 +44,17 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-      <script crossorigin src="https://unpkg.com/@emotion/react@11.11.4/dist/emotion-react.umd.min.js"></script>
-      <script crossorigin src="https://unpkg.com/@emotion/styled@11.11.5/dist/emotion-styled.umd.min.js"></script>
-      <script crossorigin src="https://unpkg.com/@mui/material@5.15.20/umd/material-ui.development.js"></script>
-      <script crossorigin src="https://unpkg.com/@mui/icons-material@5.15.20/umd/material-ui-icons.development.js"></script>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons&display=swap" />
-      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    </head>
+    <script crossorigin src="https://unpkg.com/@emotion/react@11.11.4/dist/emotion-react.umd.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@emotion/styled@11.11.5/dist/emotion-styled.umd.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@mui/material@5.15.20/umd/material-ui.development.js"></script>
+    <script crossorigin src="https://unpkg.com/@mui/icons-material@5.15.20/umd/material-ui-icons.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
   <body>
     {% raw %}
     <div class="bg-overlay"></div>
     <div id="root" class="content-shell"></div>
-    <script type="text/babel" data-presets="env,react">
+    <script type="text/babel">
       const { useEffect, useMemo, useRef, useState } = React;
       const { createRoot } = ReactDOM;
       const {
@@ -82,20 +81,7 @@
         createTheme,
         ThemeProvider,
       } = MaterialUI;
-      const { Icon } = MaterialUI;
-
-      const fallbackIcon = (name) => (props) => <Icon {...props}>{name}</Icon>;
-
-      const {
-        Favorite = fallbackIcon('favorite'),
-        FavoriteBorder = fallbackIcon('favorite_border'),
-        NotificationsActive = fallbackIcon('notifications_active'),
-        NotificationsOff = fallbackIcon('notifications_off'),
-        Refresh = fallbackIcon('refresh'),
-        Save = fallbackIcon('save'),
-        AccessTime = fallbackIcon('schedule'),
-        People = fallbackIcon('group'),
-      } = window.MaterialUIIcons || window.MaterialUI?.Icons || {};
+      const { Favorite, FavoriteBorder, NotificationsActive, NotificationsOff, Refresh, Save, AccessTime, People } = MaterialUIIcons;
 
       const NOTIFY_STORAGE_KEY = 'gym-notify-enabled';
       const NOTIFY_THRESHOLD = 4;
