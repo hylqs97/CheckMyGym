@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -9,580 +9,597 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       :root {
-        --bg-primary: #050816;
-        --glass: rgba(255, 255, 255, 0.08);
-        --glass-strong: rgba(255, 255, 255, 0.14);
-        --border: rgba(255, 255, 255, 0.18);
-        --text: #f5f7ff;
-        --muted: rgba(245, 247, 255, 0.65);
-        --accent: #6e8bff;
-        --accent-strong: #9f7aea;
-        --success: #66d483;
+        color-scheme: dark;
       }
 
-      * { box-sizing: border-box; }
-
-      html, body {
-        width: 100%;
-        max-width: none;
-      }
-
+      html,
       body {
-        font-family: 'Outfit', 'Segoe UI', sans-serif;
-        background: radial-gradient(circle at top, rgba(110, 139, 255, 0.25), transparent 40%),
-          radial-gradient(circle at 20% 20%, rgba(159, 122, 234, 0.2), transparent 35%),
-          var(--bg-primary);
-        color: var(--text);
-        min-height: 100vh;
         margin: 0;
-        padding: 0 0 48px;
-        position: relative;
-        overflow-x: hidden;
+        padding: 0;
+        font-family: 'Outfit', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        background: radial-gradient(circle at top, rgba(110, 139, 255, 0.25), transparent 40%),
+          radial-gradient(circle at 20% 20%, rgba(159, 122, 234, 0.18), transparent 35%),
+          #050816;
+        min-height: 100vh;
       }
 
-      body::after {
-        content: '';
+      #root {
+        position: relative;
+      }
+
+      .bg-overlay {
         position: fixed;
         inset: 0;
         background: linear-gradient(135deg, rgba(110, 139, 255, 0.18), rgba(102, 212, 131, 0.1));
         pointer-events: none;
         mix-blend-mode: screen;
+        z-index: 0;
       }
 
-      h1 { text-align: center; margin: 32px 0 8px; letter-spacing: 0.1em; font-weight: 600; }
-      p { line-height: 1.6; }
-
-      .hero {
-        max-width: 980px;
-        margin: 0 auto 32px;
-        text-align: center;
-      }
-
-      .hero p { color: var(--muted); font-size: 16px; }
-
-      .notif-toggle {
-        margin-top: 16px;
-        padding: 10px 22px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--text);
-        font-weight: 500;
-        letter-spacing: 0.05em;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .notif-toggle.enabled {
-        background: linear-gradient(120deg, var(--accent), var(--accent-strong));
-        border-color: transparent;
-        box-shadow: 0 10px 30px rgba(110, 139, 255, 0.35);
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 14px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        font-size: 13px;
-        color: var(--muted);
-        margin-bottom: 12px;
-      }
-
-      .layout {
-        display: flex;
-        gap: 32px;
-        align-items: flex-start;
-        flex-wrap: nowrap;
-        width: min(1400px, 92vw);
-        margin: 0 auto;
-        justify-content: center;
-      }
-
-      .main-column { flex: 3 1 960px; }
-      .side-column { flex: 1 1 320px; min-width: 280px; }
-
-      .row { display: flex; gap: 24px; flex-wrap: wrap; }
-      .card {
-        flex: 1 1 calc(50% - 12px);
-        border-radius: 24px;
-        padding: 24px;
-        background: var(--glass);
-        border: 1px solid var(--border);
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-        backdrop-filter: blur(18px);
-      }
-
-      .card h3 { margin-top: 0; font-weight: 600; letter-spacing: 0.03em; }
-      .side-column .card { position: sticky; top: 16px; }
-      .hour-card { flex: 1 1 100%; }
-
-      label { display: block; margin-top: 10px; font-weight: 500; color: var(--muted); font-size: 14px; }
-      input[type='text'],
-      input[type='number'] {
-        width: 100%;
-        margin-top: 6px;
-        padding: 10px 12px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--text);
-      }
-
-      input:focus { outline: 2px solid rgba(110, 139, 255, 0.5); }
-
-      .actions { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
-      button {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 999px;
-        background: linear-gradient(120deg, var(--accent), var(--accent-strong));
-        color: #fff;
-        font-weight: 600;
-        letter-spacing: 0.05em;
-        cursor: pointer;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-      }
-
-      button:hover { transform: translateY(-1px) scale(1.01); box-shadow: 0 10px 30px rgba(110, 139, 255, 0.4); }
-      button:active { transform: scale(0.98); }
-
-      .hour-card-header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
-      .hour-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-      .hour-tab { padding: 4px 12px; border-radius: 999px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.08); color: var(--muted); font-size: 13px; cursor: pointer; transition: all 0.15s ease; }
-      .hour-tab.active { background: rgba(110, 139, 255, 0.2); color: var(--text); border-color: rgba(110, 139, 255, 0.4); }
-
-      .people-grid { display: flex; flex-direction: column; gap: 12px; }
-      .person-card { display: flex; align-items: center; gap: 12px; border-radius: 16px; padding: 12px; background: var(--glass-strong); border: 1px solid rgba(255, 255, 255, 0.12); }
-      .person-card img,
-      .avatar-fallback { width: 56px; height: 56px; border-radius: 18px; object-fit: cover; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 22px; background: rgba(110, 139, 255, 0.2); color: var(--text); }
-      .person-card .name { font-size: 15px; font-weight: 600; }
-      .person-card .duration { font-size: 13px; color: var(--muted); }
-      .person-card .info { flex: 1; }
-      .fav-btn { border: 1px solid rgba(255,255,255,0.25); background: transparent; color: var(--text); border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer; transition: all 0.2s ease; }
-      .fav-btn.favorited { background: rgba(255, 215, 0, 0.2); border-color: rgba(255, 215, 0, 0.5); }
-      .fav-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-      .muted { color: var(--muted); font-size: 13px; }
-      footer { text-align: center; margin-top: 32px; color: var(--muted); font-size: 13px; }
-
-      canvas { background: rgba(0, 0, 0, 0.08); border-radius: 16px; padding: 12px; }
-
-      @media (max-width: 1100px) {
-        .layout { flex-direction: column; width: 92vw; }
-        .card { flex: 1 1 100%; }
-        .side-column .card { position: static; }
+      .content-shell {
+        position: relative;
+        z-index: 1;
       }
     </style>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@emotion/react@11.11.4/dist/emotion-react.umd.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@emotion/styled@11.11.5/dist/emotion-styled.umd.min.js"></script>
+    <script crossorigin src="https://unpkg.com/@mui/material@5.15.20/umd/material-ui.development.js"></script>
+    <script crossorigin src="https://unpkg.com/@mui/icons-material@5.15.20/umd/material-ui-icons.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   </head>
   <body>
-    <div class="hero">
-      <div class="badge">实时监控 · Liquid Glass UI</div>
-      <h1>健身房人数监控</h1>
-      <p>以液态玻璃风格呈现实时人数、趋势和当前在馆成员，帮助快速洞察高峰时段。</p>
-      <button type="button" id="notifyBtn" class="notif-toggle">启用低人流提醒</button>
-    </div>
-    <div class="layout">
-      <div class="main-column">
-        <div class="row">
-          <div class="card">
-            <h3>实时曲线（最近一段时间）</h3>
-            <canvas id="lineChart" height="180"></canvas>
-          </div>
-          <div class="card">
-            <h3>按星期平均人数</h3>
-            <canvas id="weekdayChart" height="180"></canvas>
-          </div>
-        </div>
-        <div class="row">
-          <div class="card hour-card">
-            <div class="hour-card-header">
-              <h3>按小时平均人数</h3>
-              <div class="hour-tabs">
-                <button type="button" class="hour-tab active" data-day="all">全部</button>
-                <button type="button" class="hour-tab" data-day="0">周一</button>
-                <button type="button" class="hour-tab" data-day="1">周二</button>
-                <button type="button" class="hour-tab" data-day="2">周三</button>
-                <button type="button" class="hour-tab" data-day="3">周四</button>
-                <button type="button" class="hour-tab" data-day="4">周五</button>
-                <button type="button" class="hour-tab" data-day="5">周六</button>
-                <button type="button" class="hour-tab" data-day="6">周日</button>
-              </div>
-            </div>
-            <canvas id="hourChart" height="220"></canvas>
-          </div>
-          <div class="card">
-            <h3>配置</h3>
-            <form id="cfgForm">
-              <label>数据存储目录
-                <input id="storage_dir" type="text" placeholder="例如: data" />
-              </label>
-              <label>轮询间隔（分钟）
-                <input id="poll_interval_minutes" type="number" min="1" step="1" />
-              </label>
-              <label>门店 ID（shop_id）
-                <input id="shop_id" type="number" min="1" step="1" />
-              </label>
-              <label>API 基地址
-                <input id="api_base" type="text" />
-              </label>
-              <label>统计开始小时（0-23）
-                <input id="open_hour_start" type="number" min="0" max="23" />
-              </label>
-              <label>统计结束小时（0-23）
-                <input id="open_hour_end" type="number" min="0" max="23" />
-              </label>
-              <div class="actions">
-                <button type="submit">保存配置</button>
-                <button type="button" id="pollNow">立即抓取一次</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-      <div class="side-column">
-        <div class="card current-card">
-          <h3>当前在馆成员 <span class="muted" id="snapshotTime"></span></h3>
-          <div id="currentPeople" class="people-grid"></div>
-          <p class="muted" id="currentEmpty">当前无人健身</p>
-        </div>
-      </div>
-    </div>
-    <footer>Liquid Glass UI · 前端 Chart.js · 后端 Flask + APScheduler · 数据 JSONL</footer>
+    {% raw %}
+    <div class="bg-overlay"></div>
+    <div id="root" class="content-shell"></div>
+    <script type="text/babel">
+      const { useEffect, useMemo, useRef, useState } = React;
+      const { createRoot } = ReactDOM;
+      const {
+        Alert,
+        Avatar,
+        Box,
+        Button,
+        Card,
+        CardContent,
+        Chip,
+        Container,
+        CssBaseline,
+        Divider,
+        FormControlLabel,
+        Grid,
+        IconButton,
+        Stack,
+        Switch,
+        TextField,
+        Tooltip,
+        ToggleButton,
+        ToggleButtonGroup,
+        Typography,
+        createTheme,
+        ThemeProvider,
+      } = MaterialUI;
+      const { Favorite, FavoriteBorder, NotificationsActive, NotificationsOff, Refresh, Save, AccessTime, People } = MaterialUIIcons;
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script>
-      Chart.defaults.color = '#f5f7ff';
-      Chart.defaults.borderColor = 'rgba(255,255,255,0.15)';
-
-      let OPEN_START_HOUR = 6;
-      let OPEN_END_HOUR = 23;
-
-      const lineCtx = document.getElementById('lineChart');
-      const weekdayCtx = document.getElementById('weekdayChart');
-      const hourCtx = document.getElementById('hourChart');
-      const currentPeopleEl = document.getElementById('currentPeople');
-      const currentEmptyEl = document.getElementById('currentEmpty');
-      const snapshotTimeEl = document.getElementById('snapshotTime');
-      const hourTabs = Array.from(document.querySelectorAll('.hour-tab'));
-      const notifyBtn = document.getElementById('notifyBtn');
-
-      let lineChart, weekdayChart, hourChart;
-      let hourScope = 'all';
-      let hourData = { all: {}, byDay: {} };
-      let favoriteIds = new Set();
-      let latestData = null;
       const NOTIFY_STORAGE_KEY = 'gym-notify-enabled';
-      let notifyEnabled = false;
-      let lastNotifyTime = 0;
       const NOTIFY_THRESHOLD = 4;
       const NOTIFY_COOLDOWN = 5 * 60 * 1000;
 
-      function isOpenHourFromTimestamp(ts) {
+      async function fetchJSON(url, opts = {}) {
+        const res = await fetch(url, {
+          headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+          ...opts,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || res.statusText || '请求失败');
+        }
+        return res.json();
+      }
+
+      function isOpenHour(ts, start, end) {
         if (!ts) return true;
         const hour = Number(ts.slice(11, 13));
-        return !Number.isNaN(hour) && hour >= OPEN_START_HOUR && hour < OPEN_END_HOUR;
+        if (Number.isNaN(hour)) return true;
+        if (start <= end) return hour >= start && hour < end;
+        return hour >= start || hour < end;
       }
 
-      function mkLine(labels, values) {
-        if (lineChart) lineChart.destroy();
-        lineChart = new Chart(lineCtx, {
-          type: 'line',
-          data: {
-            labels,
-            datasets: [{ label: '人数', data: values, borderColor: '#6e8bff', backgroundColor: 'rgba(110,139,255,0.2)', fill: true, tension: 0.35 }]
-          },
-          options: { responsive: true, plugins: { legend: { display: false } } }
-        });
-      }
-
-      function mkBar(ctx, labels, values, label) {
-        if (ctx === weekdayCtx && weekdayChart) weekdayChart.destroy();
-        if (ctx === hourCtx && hourChart) hourChart.destroy();
-        const chart = new Chart(ctx, {
-          type: 'bar',
-          data: { labels, datasets: [{ label, data: values, backgroundColor: '#66d483', borderRadius: 6 }] },
-          options: { responsive: true, plugins: { legend: { display: false } } }
-        });
-        if (ctx === weekdayCtx) weekdayChart = chart; else hourChart = chart;
-      }
-
-      async function fetchJSON(url, opts = {}) {
-        const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
-        return await r.json();
-      }
-
-      function weekdayName(i) {
-        const names = ['一', '二', '三', '四', '五', '六', '日'];
-        return Number.isInteger(i) && i >= 0 && i < names.length ? names[i] : i;
-      }
-
-      function formatDuration(minutes = 0) {
-        const mins = Math.max(0, Math.round(minutes));
-        const hours = Math.floor(mins / 60);
-        const rest = mins % 60;
-        if (hours && rest) return `${hours}小时${rest}分钟`;
-        if (hours) return `${hours}小时`;
-        return `${rest}分钟`;
-      }
-
-      function renderCurrentPeople(data) {
-        if (!currentPeopleEl) return;
-        favoriteIds = new Set((data.favorites || []).map((id) => String(id)));
-        const list = data.current_people || [];
-        currentPeopleEl.innerHTML = '';
-        if (snapshotTimeEl) snapshotTimeEl.textContent = data.last_timestamp ? `(更新于 ${data.last_timestamp})` : '';
-        if (!list.length) {
-          currentEmptyEl.style.display = 'block';
-          return;
-        }
-        currentEmptyEl.style.display = 'none';
-        list.forEach(person => {
-          const card = document.createElement('div');
-          card.className = 'person-card';
-          const avatar = person.avatar;
-          if (avatar) {
-            const img = document.createElement('img');
-            img.src = avatar;
-            img.alt = person.name || '用户头像';
-            card.appendChild(img);
-          } else {
-            const fallback = document.createElement('div');
-            fallback.className = 'avatar-fallback';
-            fallback.textContent = (person.name || '匿')[0];
-            card.appendChild(fallback);
-          }
-          const info = document.createElement('div');
-          info.className = 'info';
-          const nameEl = document.createElement('div');
-          nameEl.className = 'name';
-          nameEl.textContent = person.name || '匿名用户';
-          const durationEl = document.createElement('div');
-          durationEl.className = 'duration';
-          durationEl.textContent = `已停留 ${formatDuration(Number(person.minutes || 0))}`;
-          info.appendChild(nameEl);
-          info.appendChild(durationEl);
-          card.appendChild(info);
-
-          const favBtn = document.createElement('button');
-          const pid = person.id != null ? String(person.id) : '';
-          const isFav = pid && favoriteIds.has(pid);
-          favBtn.className = `fav-btn${isFav ? ' favorited' : ''}`;
-          favBtn.textContent = isFav ? '★ 已收藏' : '☆ 收藏';
-          favBtn.disabled = !pid;
-          if (pid) {
-            favBtn.addEventListener('click', () => toggleFavorite(pid, person.name || '匿名用户', person.avatar));
-          } else {
-            favBtn.title = '缺少 ID，无法收藏';
-          }
-          card.appendChild(favBtn);
-          currentPeopleEl.appendChild(card);
-        });
-      }
-
-      function updateNotifyButton() {
-        if (!notifyBtn) return;
-        notifyBtn.textContent = notifyEnabled ? '已启用低人流提醒' : '启用低人流提醒';
-        notifyBtn.classList.toggle('enabled', notifyEnabled);
-      }
-
-      function persistNotifyPref(value) {
-        try {
-          if (value) {
-            localStorage.setItem(NOTIFY_STORAGE_KEY, '1');
-          } else {
-            localStorage.removeItem(NOTIFY_STORAGE_KEY);
-          }
-        } catch (err) {
-          console.warn('保存通知偏好失败', err);
-        }
-      }
-
-      function restoreNotifyPref() {
-        if (!('Notification' in window)) {
-          notifyEnabled = false;
-          updateNotifyButton();
-          return;
-        }
-        try {
-          const saved = localStorage.getItem(NOTIFY_STORAGE_KEY);
-          if (saved === '1' && Notification.permission === 'granted') {
-            notifyEnabled = true;
-          } else if (saved === '1' && Notification.permission !== 'granted') {
-            localStorage.removeItem(NOTIFY_STORAGE_KEY);
-            notifyEnabled = false;
-          }
-        } catch (err) {
-          console.warn('读取通知偏好失败', err);
-        }
-        updateNotifyButton();
-      }
-
-      restoreNotifyPref();
-
-      notifyBtn?.addEventListener('click', async () => {
-        if (!('Notification' in window)) {
-          alert('当前浏览器不支持通知');
-          return;
-        }
-        if (notifyEnabled) {
-          notifyEnabled = false;
-          persistNotifyPref(false);
-          updateNotifyButton();
-          return;
-        }
-        let permission = Notification.permission;
-        if (permission === 'default') {
-          try {
-            permission = await Notification.requestPermission();
-          } catch (err) {
-            console.error('通知授权失败', err);
-            alert('通知授权失败');
-            return;
-          }
-        }
-        if (permission !== 'granted') {
-          alert('浏览器未授予通知权限');
-          return;
-        }
-        notifyEnabled = true;
-        lastNotifyTime = 0;
-        persistNotifyPref(true);
-        updateNotifyButton();
-      });
-
-      function updateHourTabActive() {
-        hourTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.day === hourScope));
-      }
-
-      function renderHourChart() {
-        const dataset = hourScope === 'all' ? (hourData.all || {}) : (hourData.byDay[hourScope] || {});
-        const labels = [];
-        const values = [];
-        for (let h = OPEN_START_HOUR; h < OPEN_END_HOUR; h += 1) {
-          labels.push(`${String(h).padStart(2, '0')}:00`);
-          values.push(Number(dataset[String(h)] ?? 0));
-        }
-        const labelText = hourScope === 'all' ? '平均人数' : `周${weekdayName(Number(hourScope))}平均人数`;
-        mkBar(hourCtx, labels, values, labelText);
-      }
-
-      hourTabs.forEach(btn => {
-        btn.addEventListener('click', () => {
-          const target = btn.dataset.day || 'all';
-          if (hourScope !== target) {
-            hourScope = target;
-            updateHourTabActive();
-            renderHourChart();
-          }
-        });
-      });
-
-      async function refreshData() {
-        const data = await fetchJSON('/api/data');
-        if (data.open_hours) {
-          OPEN_START_HOUR = Number(data.open_hours.start ?? OPEN_START_HOUR);
-          OPEN_END_HOUR = Number(data.open_hours.end ?? OPEN_END_HOUR);
-        }
-        const filteredSeries = (data.series || []).filter(item => isOpenHourFromTimestamp(item.t));
-        const labels = filteredSeries.map(x => x.t.slice(5, 16));
-        const values = filteredSeries.map(x => x.people_num);
-        mkLine(labels, values);
-
-        const wkv = Object.entries(data.weekday_avg || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
-        mkBar(weekdayCtx, wkv.map(([k]) => '周' + weekdayName(Number(k))), wkv.map(([_, v]) => v), '平均人数');
-
-        hourData = {
-          all: data.hour_avg || {},
-          byDay: data.weekday_hour_avg || {},
-        };
-        if (hourScope !== 'all' && !hourData.byDay[hourScope]) {
-          hourScope = 'all';
-          updateHourTabActive();
-        }
-        renderHourChart();
-
-        latestData = data;
-        renderCurrentPeople(data);
-        maybeNotify(filteredSeries, data);
-      }
-
-      async function toggleFavorite(id, name, avatar) {
-        const pid = String(id);
-        const target = !favoriteIds.has(pid);
-        try {
-          const res = await fetchJSON('/api/favorites', {
-            method: 'POST',
-            body: JSON.stringify({ id: pid, favorite: target, name, avatar }),
+      function ChartCanvas({ type, labels, values, label }) {
+        const canvasRef = useRef(null);
+        useEffect(() => {
+          if (!canvasRef.current) return undefined;
+          const chart = new Chart(canvasRef.current, {
+            type,
+            data: {
+              labels,
+              datasets: [
+                {
+                  label,
+                  data: values,
+                  borderColor: type === 'line' ? '#6e8bff' : '#66d483',
+                  backgroundColor: type === 'line' ? 'rgba(110,139,255,0.2)' : '#66d483',
+                  fill: type === 'line',
+                  tension: 0.35,
+                  borderRadius: 6,
+                },
+              ],
+            },
+            options: { responsive: true, plugins: { legend: { display: false } } },
           });
-          favoriteIds = new Set((res.favorites || []).map((x) => String(x)));
-          if (latestData) {
-            latestData.favorites = res.favorites || [];
-            renderCurrentPeople(latestData);
-          }
-        } catch (err) {
-          console.error('收藏失败', err);
-          alert('收藏状态更新失败');
-        }
+          return () => chart.destroy();
+        }, [type, label, labels, values]);
+
+        return <canvas ref={canvasRef} height={200} />;
       }
 
-      function maybeNotify(filteredSeries, data) {
-        if (!notifyEnabled || !('Notification' in window) || Notification.permission !== 'granted') {
-          return;
+      function CurrentPeople({ people, favorites, onToggleFavorite, snapshotTime }) {
+        if (!people?.length) {
+          return (
+            <Card variant="outlined" sx={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.12)' }}>
+              <CardContent>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <People fontSize="small" />
+                  <Typography variant="body2" color="text.secondary">
+                    当前无人健身
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          );
         }
-        const latest = filteredSeries[filteredSeries.length - 1] || (data.series || []).slice(-1)[0];
-        if (!latest) return;
-        const people = Number(latest.people_num ?? latest.people ?? 0);
-        if (Number.isNaN(people)) return;
-        if (people <= NOTIFY_THRESHOLD) {
-          const now = Date.now();
-          if (now - lastNotifyTime < NOTIFY_COOLDOWN) return;
-          lastNotifyTime = now;
-          const body = `当前人数 ${people} 人，适合前往健身房。`;
+
+        return (
+          <Stack spacing={1.25}>
+            {people.map((p) => {
+              const pid = String(p.id ?? '');
+              const favorited = favorites.has(pid);
+              return (
+                <Card
+                  key={pid || p.name}
+                  variant="outlined"
+                  sx={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.16)' }}
+                >
+                  <CardContent>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      {p.avatar ? (
+                        <Avatar src={p.avatar} alt={p.name} sx={{ width: 52, height: 52 }} />
+                      ) : (
+                        <Avatar sx={{ width: 52, height: 52 }}>{p.name?.slice(0, 1) || '?'}</Avatar>
+                      )}
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                          {p.name || '匿名用户'}
+                        </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <AccessTime fontSize="small" />
+                          <Typography variant="body2" color="text.secondary">
+                            停留 {p.minutes ?? 0} 分钟
+                          </Typography>
+                        </Stack>
+                      </Box>
+                      <Tooltip title={favorited ? '取消收藏' : '收藏成员'}>
+                        <IconButton color={favorited ? 'warning' : 'default'} onClick={() => onToggleFavorite(pid, p.name, p.avatar)}>
+                          {favorited ? <Favorite /> : <FavoriteBorder />}
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              );
+            })}
+            {snapshotTime ? (
+              <Typography variant="caption" color="text.secondary" textAlign="right">
+                最新数据：{snapshotTime}
+              </Typography>
+            ) : null}
+          </Stack>
+        );
+      }
+
+      function App() {
+        const [config, setConfig] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [saving, setSaving] = useState(false);
+        const [data, setData] = useState(null);
+        const [hourScope, setHourScope] = useState('all');
+        const [notifyEnabled, setNotifyEnabled] = useState(false);
+        const favoritesSet = useMemo(() => new Set((data?.favorites || []).map((x) => String(x))), [data]);
+        const lastNotifyRef = useRef(0);
+
+        const openStart = Number(data?.open_hours?.start ?? config?.open_hour_start ?? 6);
+        const openEnd = Number(data?.open_hours?.end ?? config?.open_hour_end ?? 23);
+
+        useEffect(() => {
+          (async () => {
+            try {
+              setLoading(true);
+              const cfg = await fetchJSON('/api/config');
+              setConfig(cfg);
+            } catch (err) {
+              console.error(err);
+            } finally {
+              setLoading(false);
+            }
+          })();
+        }, []);
+
+        useEffect(() => {
+          if (typeof window === 'undefined' || !('Notification' in window)) return;
           try {
-            new Notification('健身房人数提醒', { body, tag: 'gym-low-occupancy' });
+            const saved = localStorage.getItem(NOTIFY_STORAGE_KEY);
+            if (saved === '1' && Notification.permission === 'granted') {
+              setNotifyEnabled(true);
+            }
+          } catch (err) {
+            console.warn('读取通知偏好失败', err);
+          }
+        }, []);
+
+        const refreshData = async () => {
+          try {
+            const res = await fetchJSON('/api/data');
+            setData(res);
+          } catch (err) {
+            console.error(err);
+          }
+        };
+
+        useEffect(() => {
+          refreshData();
+          const timer = setInterval(refreshData, 60_000);
+          return () => clearInterval(timer);
+        }, []);
+
+        useEffect(() => {
+          if (!notifyEnabled || !data || !('Notification' in window) || Notification.permission !== 'granted') return;
+          const series = (data.series || []).filter((item) => isOpenHour(item.t, openStart, openEnd));
+          const latest = series[series.length - 1] || (data.series || []).slice(-1)[0];
+          if (!latest) return;
+          const people = Number(latest.people_num ?? latest.people ?? 0);
+          if (Number.isNaN(people) || people > NOTIFY_THRESHOLD) return;
+          const now = Date.now();
+          if (now - lastNotifyRef.current < NOTIFY_COOLDOWN) return;
+          lastNotifyRef.current = now;
+          try {
+            new Notification('健身房人数提醒', { body: `当前人数 ${people} 人，适合前往健身房。`, tag: 'gym-low-occupancy' });
           } catch (err) {
             console.error('发送通知失败', err);
           }
-        }
-      }
+        }, [data, notifyEnabled, openStart, openEnd]);
 
-      async function loadConfig() {
-        const cfg = await fetchJSON('/api/config');
-        OPEN_START_HOUR = Number(cfg.open_hour_start ?? OPEN_START_HOUR);
-        OPEN_END_HOUR = Number(cfg.open_hour_end ?? OPEN_END_HOUR);
-        for (const k of ['storage_dir', 'poll_interval_minutes', 'shop_id', 'api_base', 'open_hour_start', 'open_hour_end']) {
-          const el = document.getElementById(k);
-          if (el && k in cfg) el.value = cfg[k];
-        }
-      }
-
-      document.getElementById('cfgForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const payload = {
-          storage_dir: document.getElementById('storage_dir').value,
-          poll_interval_minutes: Number(document.getElementById('poll_interval_minutes').value || 5),
-          shop_id: Number(document.getElementById('shop_id').value || 218),
-          api_base: document.getElementById('api_base').value,
-          open_hour_start: Number(document.getElementById('open_hour_start').value || OPEN_START_HOUR),
-          open_hour_end: Number(document.getElementById('open_hour_end').value || OPEN_END_HOUR),
+        const handleSaveConfig = async () => {
+          if (!config) return;
+          setSaving(true);
+          try {
+            const payload = {
+              storage_dir: config.storage_dir,
+              poll_interval_minutes: Number(config.poll_interval_minutes || 5),
+              shop_id: Number(config.shop_id || 218),
+              api_base: config.api_base,
+              open_hour_start: Number(config.open_hour_start || openStart),
+              open_hour_end: Number(config.open_hour_end || openEnd),
+            };
+            await fetchJSON('/api/config', { method: 'POST', body: JSON.stringify(payload) });
+            setConfig((prev) => ({ ...prev, ...payload }));
+          } catch (err) {
+            alert('保存配置失败');
+          } finally {
+            setSaving(false);
+          }
         };
-        OPEN_START_HOUR = payload.open_hour_start;
-        OPEN_END_HOUR = payload.open_hour_end;
-        await fetchJSON('/api/config', { method: 'POST', body: JSON.stringify(payload) });
-        alert('已保存配置');
-      });
 
-      document.getElementById('pollNow').addEventListener('click', async () => {
-        await fetchJSON('/api/poll', { method: 'POST' });
-        setTimeout(refreshData, 1000);
-      });
+        const handlePollNow = async () => {
+          await fetchJSON('/api/poll', { method: 'POST' });
+          setTimeout(refreshData, 1200);
+        };
 
-      loadConfig().then(refreshData);
-      setInterval(refreshData, 60_000);
+        const handleToggleFavorite = async (id, name, avatar) => {
+          try {
+            const res = await fetchJSON('/api/favorites', {
+              method: 'POST',
+              body: JSON.stringify({ id, favorite: !favoritesSet.has(id), name, avatar }),
+            });
+            setData((prev) => ({ ...(prev || {}), favorites: res.favorites || [] }));
+          } catch (err) {
+            alert('收藏状态更新失败');
+          }
+        };
+
+        const handleToggleNotify = async () => {
+          if (!('Notification' in window)) {
+            alert('当前浏览器不支持通知');
+            return;
+          }
+          if (notifyEnabled) {
+            setNotifyEnabled(false);
+            localStorage.removeItem(NOTIFY_STORAGE_KEY);
+            return;
+          }
+          let permission = Notification.permission;
+          if (permission === 'default') {
+            try {
+              permission = await Notification.requestPermission();
+            } catch (err) {
+              alert('通知授权失败');
+              return;
+            }
+          }
+          if (permission !== 'granted') {
+            alert('浏览器未授予通知权限');
+            return;
+          }
+          setNotifyEnabled(true);
+          localStorage.setItem(NOTIFY_STORAGE_KEY, '1');
+          lastNotifyRef.current = 0;
+        };
+
+        const filteredSeries = useMemo(() => {
+          return (data?.series || []).filter((item) => isOpenHour(item.t, openStart, openEnd));
+        }, [data, openStart, openEnd]);
+
+        const lineLabels = filteredSeries.map((x) => x.t.slice(5, 16));
+        const lineValues = filteredSeries.map((x) => x.people_num);
+
+        const weekdayEntries = useMemo(() => {
+          const wk = data?.weekday_avg || {};
+          return Object.entries(wk)
+            .map(([k, v]) => [Number(k), v])
+            .sort((a, b) => a[0] - b[0]);
+        }, [data]);
+
+        const hourDataset = useMemo(() => {
+          const base = hourScope === 'all' ? data?.hour_avg : data?.weekday_hour_avg?.[hourScope];
+          const values = [];
+          const labels = [];
+          for (let h = openStart; h < openEnd; h += 1) {
+            labels.push(`${String(h).padStart(2, '0')}:00`);
+            values.push(Number(base?.[String(h)] ?? 0));
+          }
+          return { labels, values };
+        }, [data, hourScope, openStart, openEnd]);
+
+        const theme = useMemo(
+          () =>
+            createTheme({
+              palette: {
+                mode: 'dark',
+                background: { default: 'transparent', paper: 'rgba(255,255,255,0.06)' },
+                primary: { main: '#6e8bff' },
+                secondary: { main: '#66d483' },
+              },
+              shape: { borderRadius: 16 },
+            }),
+          [],
+        );
+
+        return (
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <Container maxWidth="lg" sx={{ py: 4 }}>
+              <Stack spacing={3}>
+                <Box textAlign="center">
+                  <Chip label="实时监控 · React + Material UI" color="primary" variant="outlined" sx={{ mb: 2 }} />
+                  <Typography variant="h4" fontWeight={700} gutterBottom>
+                    健身房人数监控
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary">
+                    以 React 组件重构的液态玻璃风格仪表盘，展示实时人数、趋势与在馆成员。
+                  </Typography>
+                  <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 2 }}>
+                    <Button
+                      variant="contained"
+                      color={notifyEnabled ? 'secondary' : 'primary'}
+                      startIcon={notifyEnabled ? <NotificationsActive /> : <NotificationsOff />}
+                      onClick={handleToggleNotify}
+                    >
+                      {notifyEnabled ? '关闭低人流提醒' : '启用低人流提醒'}
+                    </Button>
+                    <Button variant="outlined" startIcon={<Refresh />} onClick={refreshData}>
+                      刷新数据
+                    </Button>
+                  </Stack>
+                </Box>
+
+                <Grid container spacing={2.5}>
+                  <Grid item xs={12} md={8}>
+                    <Grid container spacing={2.5}>
+                      <Grid item xs={12} md={6}>
+                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
+                          <CardContent>
+                            <Typography variant="h6" gutterBottom>
+                              实时曲线（最近一段时间）
+                            </Typography>
+                            <ChartCanvas type="line" labels={lineLabels} values={lineValues} label="人数" />
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
+                          <CardContent>
+                            <Typography variant="h6" gutterBottom>
+                              按星期平均人数
+                            </Typography>
+                            <ChartCanvas
+                              type="bar"
+                              labels={weekdayEntries.map(([k]) => `周${'一二三四五六日'[k]}`)}
+                              values={weekdayEntries.map(([, v]) => v)}
+                              label="平均人数"
+                            />
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
+                          <CardContent>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems="center" spacing={2}>
+                              <Typography variant="h6">按小时平均人数</Typography>
+                              <ToggleButtonGroup
+                                exclusive
+                                size="small"
+                                value={hourScope}
+                                onChange={(e, val) => val && setHourScope(val)}
+                              >
+                                <ToggleButton value="all">全部</ToggleButton>
+                                <ToggleButton value="0">周一</ToggleButton>
+                                <ToggleButton value="1">周二</ToggleButton>
+                                <ToggleButton value="2">周三</ToggleButton>
+                                <ToggleButton value="3">周四</ToggleButton>
+                                <ToggleButton value="4">周五</ToggleButton>
+                                <ToggleButton value="5">周六</ToggleButton>
+                                <ToggleButton value="6">周日</ToggleButton>
+                              </ToggleButtonGroup>
+                            </Stack>
+                            <Box mt={2}>
+                              <ChartCanvas type="bar" labels={hourDataset.labels} values={hourDataset.values} label="平均人数" />
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
+                          <CardContent>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                              <Typography variant="h6" sx={{ flex: 1 }}>
+                                配置
+                              </Typography>
+                              <Stack direction="row" spacing={1}>
+                                <Button variant="contained" startIcon={<Save />} onClick={handleSaveConfig} disabled={!config || saving}>
+                                  保存配置
+                                </Button>
+                                <Button variant="outlined" startIcon={<Refresh />} onClick={handlePollNow}>
+                                  立即抓取一次
+                                </Button>
+                              </Stack>
+                            </Stack>
+                            <Divider sx={{ my: 2 }} />
+                            <Grid container spacing={2}>
+                              <Grid item xs={12} md={6}>
+                                <TextField
+                                  fullWidth
+                                  label="数据存储目录"
+                                  value={config?.storage_dir || ''}
+                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), storage_dir: e.target.value }))}
+                                />
+                              </Grid>
+                              <Grid item xs={12} md={6}>
+                                <TextField
+                                  fullWidth
+                                  type="number"
+                                  label="轮询间隔（分钟）"
+                                  value={config?.poll_interval_minutes ?? ''}
+                                  onChange={(e) =>
+                                    setConfig((prev) => ({ ...(prev || {}), poll_interval_minutes: Number(e.target.value) }))
+                                  }
+                                />
+                              </Grid>
+                              <Grid item xs={12} md={6}>
+                                <TextField
+                                  fullWidth
+                                  type="number"
+                                  label="门店 ID（shop_id）"
+                                  value={config?.shop_id ?? ''}
+                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), shop_id: Number(e.target.value) }))}
+                                />
+                              </Grid>
+                              <Grid item xs={12} md={6}>
+                                <TextField
+                                  fullWidth
+                                  label="API 基地址"
+                                  value={config?.api_base || ''}
+                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), api_base: e.target.value }))}
+                                />
+                              </Grid>
+                              <Grid item xs={12} md={6}>
+                                <TextField
+                                  fullWidth
+                                  type="number"
+                                  label="统计开始小时（0-23）"
+                                  value={config?.open_hour_start ?? ''}
+                                  onChange={(e) =>
+                                    setConfig((prev) => ({ ...(prev || {}), open_hour_start: Number(e.target.value) }))
+                                  }
+                                />
+                              </Grid>
+                              <Grid item xs={12} md={6}>
+                                <TextField
+                                  fullWidth
+                                  type="number"
+                                  label="统计结束小时（0-23）"
+                                  value={config?.open_hour_end ?? ''}
+                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), open_hour_end: Number(e.target.value) }))}
+                                />
+                              </Grid>
+                            </Grid>
+                            <Alert severity="info" sx={{ mt: 2 }}>
+                              开放时间：{String(openStart).padStart(2, '0')}:00 - {String(openEnd).padStart(2, '0')}:00（过滤统计与通知阈值）
+                            </Alert>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    </Grid>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Stack spacing={2.5}>
+                      <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
+                        <CardContent>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                            <Typography variant="h6">当前在馆成员</Typography>
+                            <Chip label={`开馆 ${openStart}:00 - ${openEnd}:00`} variant="outlined" color="secondary" size="small" />
+                          </Stack>
+                          <Box mt={2}>
+                            <CurrentPeople
+                              people={data?.current_people || []}
+                              favorites={favoritesSet}
+                              onToggleFavorite={handleToggleFavorite}
+                              snapshotTime={data?.last_timestamp}
+                            />
+                          </Box>
+                        </CardContent>
+                      </Card>
+                      <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
+                        <CardContent>
+                          <Typography variant="h6" gutterBottom>
+                            状态
+                          </Typography>
+                          <Stack spacing={1.5}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Chip size="small" color="success" label={loading ? '加载中' : '运行中'} />
+                              <Typography variant="body2" color="text.secondary">
+                                配置与调度在后台运行
+                              </Typography>
+                            </Stack>
+                            <FormControlLabel
+                              control={<Switch checked={notifyEnabled} onChange={handleToggleNotify} />}
+                              label="低人流浏览器通知"
+                            />
+                            <Typography variant="body2" color="text.secondary">
+                              收藏列表：{data?.favorites?.length || 0} 个 · 当前数据点：{data?.series?.length || 0}
+                            </Typography>
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    </Stack>
+                  </Grid>
+                </Grid>
+
+                <Box textAlign="center" py={2}>
+                  <Divider sx={{ mb: 2 }} />
+                  <Typography variant="body2" color="text.secondary">
+                    React + Material UI 前端 · 后端 Flask + APScheduler · 数据 JSONL
+                  </Typography>
+                </Box>
+              </Stack>
+            </Container>
+          </ThemeProvider>
+        );
+      }
+
+      const root = createRoot(document.getElementById('root'));
+      root.render(<App />);
     </script>
+    {% endraw %}
   </body>
 </html>

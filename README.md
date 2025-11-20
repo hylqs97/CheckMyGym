@@ -1,7 +1,7 @@
 这是一个用于「监控健身房实时人数、可视化趋势并存储数据」的项目。
 
 ## 功能概览
-- Flask + Chart.js 仪表盘，液态玻璃风格 UI。
+- Flask + React + Material UI + Chart.js 仪表盘，液态玻璃风格 UI。
 - APScheduler 后台定时抓取，默认 5 分钟执行一次。
 - 数据以 JSONL 形式存储在本地目录，可在界面随时切换存储路径、API、门店 ID 等。
 - 支持 Windows 任务计划程序实现开机自启（可选）。
