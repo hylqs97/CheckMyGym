@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import signal
 import subprocess
@@ -18,6 +19,7 @@ from gym_service import ConfigManager, DataStore  # noqa: E402
 PID_FILE = ROOT / ".checkmygym.pid"
 LOG_DIR = ROOT / "logs"
 LOG_FILE = LOG_DIR / "checkmygym.log"
+CONFIG_FILE = ROOT / "config.json"
 
 
 def _is_running(pid: int) -> bool:
@@ -61,17 +63,27 @@ def _prompt_int(label: str, default: int, min_value: int | None = None, max_valu
         return value
 
 
-def configure() -> dict:
-    cfg_mgr = ConfigManager(str(ROOT / "config.json"))
+def configure(use_defaults: bool = False, init_port: int | None = None) -> dict:
+    is_first_run = not CONFIG_FILE.exists()
+    cfg_mgr = ConfigManager(str(CONFIG_FILE))
     cfg = cfg_mgr.load().copy()
 
-    print("\n请按提示输入参数（回车可使用当前值）：")
-    cfg["storage_dir"] = _prompt_str("数据存储目录", str(cfg["storage_dir"]))
-    cfg["poll_interval_minutes"] = _prompt_int("轮询间隔（分钟）", int(cfg["poll_interval_minutes"]), min_value=1)
-    cfg["shop_id"] = _prompt_int("门店 ID", int(cfg["shop_id"]), min_value=1)
-    cfg["api_base"] = _prompt_str("API 基地址", str(cfg["api_base"]))
-    cfg["open_hour_start"] = _prompt_int("开始营业小时(0-23)", int(cfg.get("open_hour_start", 6)), 0, 23)
-    cfg["open_hour_end"] = _prompt_int("结束营业小时(0-23)", int(cfg.get("open_hour_end", 23)), 0, 23)
+    if is_first_run and init_port is not None:
+        cfg["port"] = init_port
+        print(f"首次运行：使用命令行端口 {init_port} 初始化配置。")
+    elif (not is_first_run) and (init_port is not None):
+        print("检测到 config.json 已存在，--port 参数将被忽略；如需改端口请手动编辑 config.json。")
+
+    if not use_defaults:
+        print("\n请按提示输入参数（回车可使用当前值）：")
+        cfg["storage_dir"] = _prompt_str("数据存储目录", str(cfg["storage_dir"]))
+        cfg["poll_interval_minutes"] = _prompt_int("轮询间隔（分钟）", int(cfg["poll_interval_minutes"]), min_value=1)
+        cfg["shop_id"] = _prompt_int("门店 ID", int(cfg["shop_id"]), min_value=1)
+        cfg["api_base"] = _prompt_str("API 基地址", str(cfg["api_base"]))
+        cfg["open_hour_start"] = _prompt_int("开始营业小时(0-23)", int(cfg.get("open_hour_start", 6)), 0, 23)
+        cfg["open_hour_end"] = _prompt_int("结束营业小时(0-23)", int(cfg.get("open_hour_end", 23)), 0, 23)
+    else:
+        print("使用已有配置直接启动（跳过交互输入）。")
 
     if cfg["open_hour_start"] == cfg["open_hour_end"]:
         cfg["open_hour_end"] = (cfg["open_hour_start"] + 1) % 24
@@ -82,13 +94,13 @@ def configure() -> dict:
     return cfg
 
 
-def start() -> None:
+def start(use_defaults: bool = False, port: int | None = None) -> None:
     pid = _read_pid()
     if pid and _is_running(pid):
         print(f"CheckMyGym 已在后台运行，PID={pid}。")
         return
 
-    configure()
+    cfg = configure(use_defaults=use_defaults, init_port=port)
     LOG_DIR.mkdir(exist_ok=True)
     with LOG_FILE.open("a", encoding="utf-8") as log:
         process = subprocess.Popen(
@@ -100,7 +112,7 @@ def start() -> None:
             env={**os.environ, "FLASK_DEBUG": "0"},
         )
     PID_FILE.write_text(str(process.pid), encoding="utf-8")
-    print(f"✅ 已后台启动 CheckMyGym，PID={process.pid}")
+    print(f"✅ 已后台启动 CheckMyGym，PID={process.pid}，端口={cfg.get('port', 6767)}")
     print(f"日志文件：{LOG_FILE}")
 
 
@@ -130,17 +142,26 @@ def status() -> None:
         print("PID 文件存在但进程不在运行，建议执行 stop 清理。")
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="CheckMyGym Linux 后台管理脚本")
+    parser.add_argument("action", nargs="?", default="start", choices=["start", "stop", "status"])
+    parser.add_argument("--use-defaults", action="store_true", help="启动时跳过交互提问，直接使用已有配置")
+    parser.add_argument("--port", type=int, default=None, help="首次运行时设置端口，默认 6767")
+    return parser
+
+
 def main() -> None:
-    action = sys.argv[1] if len(sys.argv) > 1 else "start"
-    if action == "start":
-        start()
-    elif action == "stop":
-        stop()
-    elif action == "status":
-        status()
-    else:
-        print("用法: python scripts/run_linux_daemon.py [start|stop|status]")
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.port is not None and not (1 <= args.port <= 65535):
+        print("--port 必须在 1 到 65535 之间")
         sys.exit(1)
+    if args.action == "start":
+        start(use_defaults=args.use_defaults, port=args.port)
+    elif args.action == "stop":
+        stop()
+    elif args.action == "status":
+        status()
 
 
 if __name__ == "__main__":

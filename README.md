@@ -3,9 +3,9 @@
 ## 功能概览
 - Flask + React + Material UI + Chart.js 仪表盘，液态玻璃风格 UI。
 - APScheduler 后台定时抓取，默认 5 分钟执行一次。
-- 数据以 JSONL 形式存储在本地目录，可在界面随时切换存储路径、API、门店 ID 等。
+- 数据以 JSONL 形式存储在本地目录，可在界面随时切换存储路径、API、门店 ID 等配置。
 - 支持 Linux 下一条命令交互式配置并后台运行。
-- 支持 Windows 任务计划程序实现开机自启（可选）。
+- 支持 Linux systemd 开机自启（可选）。
 
 ## Linux 新用户快速开始
 ### 1) 通过 Git 拉取代码
@@ -25,6 +25,12 @@ pip install -r requirements.txt
 ```bash
 python scripts/run_linux_daemon.py start
 ```
+首次运行可选指定端口（默认 `6767`）：
+```bash
+python scripts/run_linux_daemon.py start --port 6767
+```
+> 端口只允许在首次运行时通过命令行初始化；后续若需改端口，请手动编辑 `config.json` 中的 `port`。
+
 执行后会自动提示你输入（回车可使用默认值）：
 - 数据存储目录（`storage_dir`）
 - 轮询间隔（分钟）
@@ -38,7 +44,13 @@ python scripts/run_linux_daemon.py start
 - 以后台进程启动 `python app.py`
 - 输出 PID 和日志路径 `logs/checkmygym.log`
 
-### 4) 常用管理命令
+### 4) 跳过交互，直接按现有配置启动
+```bash
+python scripts/run_linux_daemon.py start --use-defaults
+```
+适合已经配置过 `config.json` 的场景，不需要每次回车确认参数。
+
+### 5) 常用管理命令
 ```bash
 # 查看状态
 python scripts/run_linux_daemon.py status
@@ -47,10 +59,47 @@ python scripts/run_linux_daemon.py status
 python scripts/run_linux_daemon.py stop
 ```
 
-### 5) 访问页面
+### 6) 访问页面
 启动成功后浏览器访问：
-- `http://127.0.0.1:8000`
-- 或 `http://<你的服务器IP>:8000`
+- `http://127.0.0.1:<port>`（默认 `6767`）
+- 或 `http://<你的服务器IP>:<port>`
+
+## Linux 开机自启（systemd，可选）
+1. 在项目根目录创建 systemd 服务文件：
+   ```bash
+   sudo tee /etc/systemd/system/checkmygym.service >/dev/null <<'EOF'
+   [Unit]
+   Description=CheckMyGym Service
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=<你的Linux用户名>
+   WorkingDirectory=/path/to/CheckMyGym
+   ExecStart=/path/to/CheckMyGym/.venv/bin/python /path/to/CheckMyGym/scripts/run_linux_daemon.py start --use-defaults
+   ExecStop=/path/to/CheckMyGym/.venv/bin/python /path/to/CheckMyGym/scripts/run_linux_daemon.py stop
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   EOF
+   ```
+2. 启用并启动服务：
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable checkmygym
+   sudo systemctl start checkmygym
+   ```
+3. 查看状态与日志：
+   ```bash
+   sudo systemctl status checkmygym
+   journalctl -u checkmygym -f
+   ```
+4. 关闭开机自启：
+   ```bash
+   sudo systemctl disable --now checkmygym
+   ```
 
 ## 图表 & 数据
 - 实时曲线：最近一段时间的人数走向。
@@ -65,11 +114,6 @@ python scripts/run_linux_daemon.py stop
     "using_man": [ ...原始用户列表... ]
   }
   ```
-
-## 开机自启（可选）
-1. 在 PowerShell（建议管理员）执行：`powershell -ExecutionPolicy Bypass -File scripts/setup_autorun.ps1`
-   - 将注册任务 `CheckMyGym`，在用户登录后自动运行 `python app.py`。
-2. 取消自启：`powershell -ExecutionPolicy Bypass -File scripts/remove_autorun.ps1`
 
 ## 其他说明
 - `.gitignore` 已排除 `config.json`、`data/`、`logs/`、IDE 目录等敏感或无关文件，提交代码前确保未强制添加这些文件。
