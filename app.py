@@ -191,4 +191,7 @@ start_scheduler(app)
 
 if __name__ == "__main__":
     ensure_templates()
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    debug_mode = os.getenv("FLASK_DEBUG", "0") == "1"
+    cfg = config_mgr.load()
+    port = int(cfg.get("port", 6767))
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)
