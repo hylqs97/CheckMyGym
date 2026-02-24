@@ -17,3 +17,7 @@ data/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Linux daemon runtime files
+.checkmygym.pid
+logs/
