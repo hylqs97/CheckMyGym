@@ -99,6 +99,7 @@ def create_app() -> Flask:
         favorites = get_favorite_ids()
         summary = DataStore.summarize(entries)
         summary["favorites"] = sorted(list(favorites))
+        summary["favorite_records"] = DataStore.summarize_favorite_records(entries, favorites, per_user_limit=5)
         for person in summary.get("current_people", []):
             pid = str(person.get("id") or "")
             person["favorite"] = pid in favorites

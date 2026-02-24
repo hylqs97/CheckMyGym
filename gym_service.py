@@ -136,6 +136,124 @@ class DataStore:
             "weekday_hour_avg": weekday_hour_avg,
         }
 
+    @staticmethod
+    def summarize_favorite_records(
+        entries: List[Dict[str, Any]],
+        favorite_ids: set[str],
+        per_user_limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        favorites = {str(fid) for fid in (favorite_ids or set()) if str(fid)}
+        if not favorites:
+            return []
+
+        profiles: Dict[str, Dict[str, Any]] = {
+            fid: {
+                "id": fid,
+                "name": None,
+                "avatar": None,
+                "last_seen": None,
+                "last_minutes": 0,
+                "is_current": False,
+            }
+            for fid in favorites
+        }
+        sessions_by_user: Dict[str, List[Dict[str, Any]]] = {fid: [] for fid in favorites}
+        active_sessions: Dict[str, Dict[str, Any]] = {}
+
+        def _to_int(value: Any, default: int = 0) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _start_session(ts: str, minutes: int) -> Dict[str, Any]:
+            return {
+                "start": ts,
+                "end": ts,
+                "minutes_start": minutes,
+                "minutes_end": minutes,
+                "max_minutes": minutes,
+                "samples": 1,
+                "current": False,
+            }
+
+        def _close_missing(seen_ids: set[str]) -> None:
+            for pid in list(active_sessions.keys()):
+                if pid in seen_ids:
+                    continue
+                sessions_by_user.setdefault(pid, []).append(active_sessions.pop(pid))
+
+        for entry in entries:
+            ts = str(entry.get("timestamp") or "")
+            people = entry.get("using_man", []) or []
+            seen_in_entry: set[str] = set()
+
+            for person in people:
+                pid = str(person.get("id") or "")
+                if pid not in favorites:
+                    continue
+                seen_in_entry.add(pid)
+
+                minutes = _to_int(person.get("minutes"), 0)
+                name = person.get("nickname") or person.get("name")
+                avatar = person.get("avatar")
+                profile = profiles[pid]
+                if name:
+                    profile["name"] = name
+                if avatar:
+                    profile["avatar"] = avatar
+                profile["last_seen"] = ts or profile.get("last_seen")
+                profile["last_minutes"] = minutes
+
+                active = active_sessions.get(pid)
+                # If the upstream minutes counter drops, treat it as a new gym session.
+                if active is None or minutes + 5 < _to_int(active.get("minutes_end"), 0):
+                    if active is not None:
+                        sessions_by_user[pid].append(active)
+                    active = _start_session(ts, minutes)
+                    active_sessions[pid] = active
+                else:
+                    active["end"] = ts
+                    active["minutes_end"] = minutes
+                    active["max_minutes"] = max(_to_int(active.get("max_minutes"), 0), minutes)
+                    active["samples"] = _to_int(active.get("samples"), 0) + 1
+
+            _close_missing(seen_in_entry)
+
+        for pid, session in list(active_sessions.items()):
+            session["current"] = True
+            sessions_by_user[pid].append(session)
+            active_sessions.pop(pid, None)
+            profiles[pid]["is_current"] = True
+
+        items: List[Dict[str, Any]] = []
+        for fid in favorites:
+            sessions = sessions_by_user.get(fid, [])
+            recent = list(reversed(sessions[-per_user_limit:])) if sessions else []
+            profile = profiles.get(fid) or {}
+            items.append(
+                {
+                    "id": fid,
+                    "name": profile.get("name") or f"ID {fid}",
+                    "avatar": profile.get("avatar"),
+                    "last_seen": profile.get("last_seen"),
+                    "last_minutes": _to_int(profile.get("last_minutes"), 0),
+                    "is_current": bool(profile.get("is_current")),
+                    "recent_records": recent,
+                    "record_count": len(sessions),
+                }
+            )
+
+        items.sort(
+            key=lambda x: (
+                1 if x.get("is_current") else 0,
+                x.get("last_seen") or "",
+                x.get("record_count") or 0,
+            ),
+            reverse=True,
+        )
+        return items
+
 
 def build_url(api_base: str, shop_id: int) -> str:
     return f"{api_base}/auth/run/queryShopDetail?page=1&pageSize=10&shopId={shop_id}"

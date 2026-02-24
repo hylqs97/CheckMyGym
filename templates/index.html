@@ -113,10 +113,11 @@
         return hour >= start || hour < end;
       }
 
-      function ChartCanvas({ type, labels, values, label }) {
+      function ChartCanvas({ type, labels, values, label, height = 220, denseX = false }) {
         const canvasRef = useRef(null);
         useEffect(() => {
           if (!canvasRef.current) return undefined;
+          const xTickStep = denseX && labels.length > 0 ? Math.max(1, Math.ceil(labels.length / 8)) : 1;
           const chart = new Chart(canvasRef.current, {
             type,
             data: {
@@ -130,15 +131,51 @@
                   fill: type === 'line',
                   tension: 0.35,
                   borderRadius: 6,
+                  borderWidth: type === 'line' ? 2.5 : 0,
+                  pointRadius: type === 'line' ? (values.length > 40 ? 0 : 2) : 0,
+                  pointHoverRadius: type === 'line' ? 4 : 0,
+                  maxBarThickness: type === 'bar' ? 28 : undefined,
                 },
               ],
             },
-            options: { responsive: true, plugins: { legend: { display: false } } },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              animation: false,
+              plugins: { legend: { display: false } },
+              scales: {
+                x: {
+                  grid: { display: !denseX, color: 'rgba(255,255,255,0.04)' },
+                  ticks: {
+                    color: 'rgba(255,255,255,0.6)',
+                    autoSkip: false,
+                    maxRotation: denseX ? 35 : 0,
+                    minRotation: denseX ? 35 : 0,
+                    callback: function (value, index) {
+                      if (denseX && index % xTickStep !== 0) return '';
+                      return this.getLabelForValue(value);
+                    },
+                  },
+                },
+                y: {
+                  beginAtZero: true,
+                  grid: { color: 'rgba(255,255,255,0.06)' },
+                  ticks: {
+                    color: 'rgba(255,255,255,0.6)',
+                    precision: type === 'line' ? 0 : 1,
+                  },
+                },
+              },
+            },
           });
           return () => chart.destroy();
-        }, [type, label, labels, values]);
+        }, [type, label, labels, values, denseX]);
 
-        return <canvas ref={canvasRef} height={200} />;
+        return (
+          <Box sx={{ position: 'relative', height }}>
+            <canvas ref={canvasRef} />
+          </Box>
+        );
       }
 
       function CurrentPeople({ people, favorites, onToggleFavorite, snapshotTime }) {
@@ -201,6 +238,90 @@
                 最新数据：{snapshotTime}
               </Typography>
             ) : null}
+          </Stack>
+        );
+      }
+
+      function shortTs(ts) {
+        if (!ts) return '--';
+        const s = String(ts);
+        return s.length >= 16 ? s.slice(5, 16) : s;
+      }
+
+      function FavoriteHistory({ items }) {
+        if (!items?.length) {
+          return (
+            <Typography variant="body2" color="text.secondary">
+              暂无收藏成员
+            </Typography>
+          );
+        }
+
+        return (
+          <Stack spacing={1.25}>
+            {items.map((item) => (
+              <Card
+                key={item.id}
+                variant="outlined"
+                sx={{ background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.12)' }}
+              >
+                <CardContent sx={{ '&:last-child': { pb: 1.5 } }}>
+                  <Stack direction="row" spacing={1.25} alignItems="center">
+                    {item.avatar ? (
+                      <Avatar src={item.avatar} alt={item.name} sx={{ width: 38, height: 38 }} />
+                    ) : (
+                      <Avatar sx={{ width: 38, height: 38 }}>{String(item.name || item.id || '?').slice(0, 1)}</Avatar>
+                    )}
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="subtitle2" noWrap title={item.name}>
+                        {item.name || `ID ${item.id}`}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap>
+                        ID {item.id}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      size="small"
+                      color={item.is_current ? 'success' : 'default'}
+                      variant={item.is_current ? 'filled' : 'outlined'}
+                      label={item.is_current ? '在馆' : '离馆'}
+                    />
+                  </Stack>
+
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+                    最近出现：{shortTs(item.last_seen)} · 最近停留 {Number(item.last_minutes ?? 0)} 分钟
+                  </Typography>
+
+                  {item.recent_records?.length ? (
+                    <Stack spacing={0.75} sx={{ mt: 1.1 }}>
+                      {item.recent_records.slice(0, 3).map((rec, idx) => (
+                        <Box
+                          key={`${item.id}-${rec.start || rec.end || idx}-${idx}`}
+                          sx={{
+                            px: 1,
+                            py: 0.75,
+                            borderRadius: 1.5,
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {rec.current ? '当前这次' : '历史记录'} · {shortTs(rec.start)} - {shortTs(rec.end)}
+                          </Typography>
+                          <Typography variant="body2">
+                            停留 {Number(rec.minutes_end ?? rec.max_minutes ?? 0)} 分钟 · 采样 {Number(rec.samples ?? 1)} 次
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                      最近 2000 条数据中暂无记录
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
           </Stack>
         );
       }
@@ -309,6 +430,7 @@
               body: JSON.stringify({ id, favorite: !favoritesSet.has(id), name, avatar }),
             });
             setData((prev) => ({ ...(prev || {}), favorites: res.favorites || [] }));
+            refreshData();
           } catch (err) {
             alert('收藏状态更新失败');
           }
@@ -346,7 +468,7 @@
           return (data?.series || []).filter((item) => isOpenHour(item.t, openStart, openEnd));
         }, [data, openStart, openEnd]);
 
-        const lineLabels = filteredSeries.map((x) => x.t.slice(5, 16));
+        const lineLabels = filteredSeries.map((x) => x.t.slice(11, 16));
         const lineValues = filteredSeries.map((x) => x.people_num);
 
         const weekdayEntries = useMemo(() => {
@@ -418,7 +540,7 @@
                             <Typography variant="h6" gutterBottom>
                               实时曲线（最近一段时间）
                             </Typography>
-                            <ChartCanvas type="line" labels={lineLabels} values={lineValues} label="人数" />
+                            <ChartCanvas type="line" labels={lineLabels} values={lineValues} label="人数" denseX height={210} />
                           </CardContent>
                         </Card>
                       </Grid>
@@ -433,6 +555,7 @@
                               labels={weekdayEntries.map(([k]) => `周${'一二三四五六日'[k]}`)}
                               values={weekdayEntries.map(([, v]) => v)}
                               label="平均人数"
+                              height={210}
                             />
                           </CardContent>
                         </Card>
@@ -459,7 +582,14 @@
                               </ToggleButtonGroup>
                             </Stack>
                             <Box mt={2}>
-                              <ChartCanvas type="bar" labels={hourDataset.labels} values={hourDataset.values} label="平均人数" />
+                              <ChartCanvas
+                                type="bar"
+                                labels={hourDataset.labels}
+                                values={hourDataset.values}
+                                label="平均人数"
+                                denseX={hourDataset.labels.length > 12}
+                                height={260}
+                              />
                             </Box>
                           </CardContent>
                         </Card>
@@ -562,6 +692,22 @@
                               onToggleFavorite={handleToggleFavorite}
                               snapshotTime={data?.last_timestamp}
                             />
+                          </Box>
+                        </CardContent>
+                      </Card>
+                      <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
+                        <CardContent>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.5}>
+                            <Typography variant="h6">收藏健身记录</Typography>
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              color="warning"
+                              label={`${(data?.favorite_records || []).filter((x) => x.is_current).length} 在馆`}
+                            />
+                          </Stack>
+                          <Box mt={2} sx={{ maxHeight: 380, overflowY: 'auto', pr: 0.5 }}>
+                            <FavoriteHistory items={data?.favorite_records || []} />
                           </Box>
                         </CardContent>
                       </Card>
