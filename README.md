@@ -60,6 +60,7 @@ python app.py
 
 - `http://127.0.0.1:6767`
 - 或 `http://<你的机器IP>:6767`
+- ? `http://<????>:6767`??? `hylqs.dynv6.net:6767`?
 
 首次运行会自动生成 `config.json` 和数据目录。
 
@@ -79,6 +80,12 @@ python scripts/run_daemon.py start
 python scripts/run_daemon.py start --port 6767
 ```
 
+?????????? `dual`?????? IPv4+IPv6??
+
+```bash
+python scripts/run_daemon.py start --host dual
+```
+
 脚本会提示你输入（回车使用当前值）：
 
 - `storage_dir`
@@ -87,11 +94,18 @@ python scripts/run_daemon.py start --port 6767
 - `api_base`
 - `open_hour_start`
 - `open_hour_end`
+- `host`?`dual` / `0.0.0.0` / `::` / `127.0.0.1`?
 
 ### 按现有配置直接启动（跳过交互）
 
 ```bash
 python scripts/run_daemon.py start --use-defaults
+```
+
+???????????
+
+```bash
+python scripts/run_daemon.py start --use-defaults --host dual
 ```
 
 ### 状态与停止

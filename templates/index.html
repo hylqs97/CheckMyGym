@@ -21,10 +21,14 @@
           radial-gradient(circle at 20% 20%, rgba(159, 122, 234, 0.18), transparent 35%),
           #050816;
         min-height: 100vh;
+        width: 100%;
+        overflow-x: hidden;
       }
 
       #root {
         position: relative;
+        width: 100%;
+        overflow-x: clip;
       }
 
       .bg-overlay {
@@ -39,6 +43,30 @@
       .content-shell {
         position: relative;
         z-index: 1;
+        overflow-x: clip;
+      }
+
+      @media (max-width: 900px) {
+        .dashboard-grid {
+          width: 100% !important;
+          margin: 0 !important;
+        }
+
+        .dashboard-grid > .dashboard-main,
+        .dashboard-grid > .dashboard-side {
+          padding-left: 0 !important;
+          padding-right: 0 !important;
+        }
+
+        .dashboard-main-grid {
+          width: 100% !important;
+          margin: 0 !important;
+        }
+
+        .dashboard-main-grid > .MuiGrid-item {
+          padding-left: 0 !important;
+          padding-right: 0 !important;
+        }
       }
     </style>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -206,13 +234,13 @@
                   sx={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.16)' }}
                 >
                   <CardContent>
-                    <Stack direction="row" spacing={2} alignItems="center">
+                    <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
                       {p.avatar ? (
                         <Avatar src={p.avatar} alt={p.name} sx={{ width: 52, height: 52 }} />
                       ) : (
                         <Avatar sx={{ width: 52, height: 52 }}>{p.name?.slice(0, 1) || '?'}</Avatar>
                       )}
-                      <Box sx={{ flex: 1 }}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                           {p.name || '匿名用户'}
                         </Typography>
@@ -248,7 +276,7 @@
         return s.length >= 16 ? s.slice(5, 16) : s;
       }
 
-      function FavoriteHistory({ items }) {
+      function FavoriteHistory({ items, onRemoveFavorite }) {
         if (!items?.length) {
           return (
             <Typography variant="body2" color="text.secondary">
@@ -266,7 +294,7 @@
                 sx={{ background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.12)' }}
               >
                 <CardContent sx={{ '&:last-child': { pb: 1.5 } }}>
-                  <Stack direction="row" spacing={1.25} alignItems="center">
+                  <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 1 }}>
                     {item.avatar ? (
                       <Avatar src={item.avatar} alt={item.name} sx={{ width: 38, height: 38 }} />
                     ) : (
@@ -280,12 +308,23 @@
                         ID {item.id}
                       </Typography>
                     </Box>
-                    <Chip
-                      size="small"
-                      color={item.is_current ? 'success' : 'default'}
-                      variant={item.is_current ? 'filled' : 'outlined'}
-                      label={item.is_current ? '在馆' : '离馆'}
-                    />
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { xs: 0, sm: 'auto' } }}>
+                      <Chip
+                        size="small"
+                        color={item.is_current ? 'success' : 'default'}
+                        variant={item.is_current ? 'filled' : 'outlined'}
+                        label={item.is_current ? '在馆' : '离馆'}
+                      />
+                      <Tooltip title="取消收藏">
+                        <IconButton
+                          size="small"
+                          color="warning"
+                          onClick={() => onRemoveFavorite?.(String(item.id ?? ''), item.name, item.avatar)}
+                        >
+                          <Favorite />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                   </Stack>
 
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
@@ -422,18 +461,26 @@
           await fetchJSON('/api/poll', { method: 'POST' });
           setTimeout(refreshData, 1200);
         };
-
-        const handleToggleFavorite = async (id, name, avatar) => {
+        const setFavoriteStatus = async (id, favorite, name, avatar) => {
+          if (!id) return;
           try {
             const res = await fetchJSON('/api/favorites', {
               method: 'POST',
-              body: JSON.stringify({ id, favorite: !favoritesSet.has(id), name, avatar }),
+              body: JSON.stringify({ id, favorite, name, avatar }),
             });
             setData((prev) => ({ ...(prev || {}), favorites: res.favorites || [] }));
             refreshData();
           } catch (err) {
-            alert('收藏状态更新失败');
+            alert('Failed to update favorite status');
           }
+        };
+
+        const handleToggleFavorite = async (id, name, avatar) => {
+          await setFavoriteStatus(id, !favoritesSet.has(String(id)), name, avatar);
+        };
+
+        const handleRemoveFavorite = async (id, name, avatar) => {
+          await setFavoriteStatus(id, false, name, avatar);
         };
 
         const handleToggleNotify = async () => {
@@ -463,13 +510,6 @@
           localStorage.setItem(NOTIFY_STORAGE_KEY, '1');
           lastNotifyRef.current = 0;
         };
-
-        const filteredSeries = useMemo(() => {
-          return (data?.series || []).filter((item) => isOpenHour(item.t, openStart, openEnd));
-        }, [data, openStart, openEnd]);
-
-        const lineLabels = filteredSeries.map((x) => x.t.slice(11, 16));
-        const lineValues = filteredSeries.map((x) => x.people_num);
 
         const weekdayEntries = useMemo(() => {
           const wk = data?.weekday_avg || {};
@@ -506,7 +546,11 @@
         return (
           <ThemeProvider theme={theme}>
             <CssBaseline />
-            <Container maxWidth="lg" sx={{ py: 4 }}>
+            <Container
+              maxWidth="lg"
+              disableGutters
+              sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, md: 4 }, mx: 'auto', boxSizing: 'border-box' }}
+            >
               <Stack spacing={3}>
                 <Box textAlign="center">
                   <Chip label="实时监控 · React + Material UI" color="primary" variant="outlined" sx={{ mb: 2 }} />
@@ -516,7 +560,7 @@
                   <Typography variant="body1" color="text.secondary">
                     以 React 组件重构的液态玻璃风格仪表盘，展示实时人数、趋势与在馆成员。
                   </Typography>
-                  <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 2 }}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="center" alignItems="stretch" sx={{ mt: 2 }}>
                     <Button
                       variant="contained"
                       color={notifyEnabled ? 'secondary' : 'primary'}
@@ -531,20 +575,11 @@
                   </Stack>
                 </Box>
 
-                <Grid container spacing={2.5}>
-                  <Grid item xs={12} md={8}>
-                    <Grid container spacing={2.5}>
-                      <Grid item xs={12} md={6}>
-                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
-                          <CardContent>
-                            <Typography variant="h6" gutterBottom>
-                              实时曲线（最近一段时间）
-                            </Typography>
-                            <ChartCanvas type="line" labels={lineLabels} values={lineValues} label="人数" denseX height={210} />
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                      <Grid item xs={12} md={6}>
+                <Grid className="dashboard-grid" container spacing={{ xs: 1.5, md: 2.5 }}>
+                  <Grid className="dashboard-main" item xs={12} md={8} order={{ xs: 2, md: 2 }} sx={{ minWidth: 0 }}>
+                    <Grid className="dashboard-main-grid" container spacing={{ xs: 1.5, md: 2.5 }}>
+
+                      <Grid item xs={12}>
                         <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
                           <CardContent>
                             <Typography variant="h6" gutterBottom>
@@ -570,6 +605,7 @@
                                 size="small"
                                 value={hourScope}
                                 onChange={(e, val) => val && setHourScope(val)}
+                                sx={{ flexWrap: 'wrap', justifyContent: { xs: 'flex-start', sm: 'center' } }}
                               >
                                 <ToggleButton value="all">全部</ToggleButton>
                                 <ToggleButton value="0">周一</ToggleButton>
@@ -601,7 +637,7 @@
                               <Typography variant="h6" sx={{ flex: 1 }}>
                                 配置
                               </Typography>
-                              <Stack direction="row" spacing={1}>
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
                                 <Button variant="contained" startIcon={<Save />} onClick={handleSaveConfig} disabled={!config || saving}>
                                   保存配置
                                 </Button>
@@ -677,11 +713,11 @@
                       </Grid>
                     </Grid>
                   </Grid>
-                  <Grid item xs={12} md={4}>
+                  <Grid className="dashboard-side" item xs={12} md={4} order={{ xs: 1, md: 1 }} sx={{ minWidth: 0 }}>
                     <Stack spacing={2.5}>
                       <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
                         <CardContent>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1.5}>
                             <Typography variant="h6">当前在馆成员</Typography>
                             <Chip label={`开馆 ${openStart}:00 - ${openEnd}:00`} variant="outlined" color="secondary" size="small" />
                           </Stack>
@@ -697,7 +733,7 @@
                       </Card>
                       <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
                         <CardContent>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.5}>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
                             <Typography variant="h6">收藏健身记录</Typography>
                             <Chip
                               size="small"
@@ -706,8 +742,8 @@
                               label={`${(data?.favorite_records || []).filter((x) => x.is_current).length} 在馆`}
                             />
                           </Stack>
-                          <Box mt={2} sx={{ maxHeight: 380, overflowY: 'auto', pr: 0.5 }}>
-                            <FavoriteHistory items={data?.favorite_records || []} />
+                          <Box mt={2} sx={{ maxHeight: { xs: 320, md: 420 }, overflowY: 'auto', pr: 0.5 }}>
+                            <FavoriteHistory items={data?.favorite_records || []} onRemoveFavorite={handleRemoveFavorite} />
                           </Box>
                         </CardContent>
                       </Card>

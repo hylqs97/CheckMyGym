@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template, request, current_app, has_app_context
+from flask import Flask, jsonify, render_template, request, current_app, has_app_context, make_response
 from apscheduler.schedulers.background import BackgroundScheduler
+from werkzeug.serving import make_server
 
 from gym_service import ConfigManager, DataStore, fetch_gym_status
 
@@ -47,7 +49,12 @@ def create_app() -> Flask:
 
     @app.route("/")
     def index():
-        return render_template("index.html")
+        resp = make_response(render_template("index.html"))
+        # Keep dashboard HTML fresh on mobile browsers that aggressively cache.
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 
     @app.get("/api/config")
     def get_config():
@@ -186,6 +193,62 @@ def ensure_templates():
         os.makedirs(templates_path, exist_ok=True)
 
 
+def _normalize_host(value: str | None) -> str:
+    host = (value or "").strip()
+    if not host:
+        return "dual"
+    host_lower = host.lower()
+    if host_lower in {"dual", "both"}:
+        return "dual"
+    return host
+
+
+def _run_dual_stack(app: Flask, port: int) -> None:
+    # Try IPv6 first so dynv6/AAAA users work out of the box. Some OSes expose IPv4
+    # via the IPv6 socket; in that case the IPv4 bind will fail and we simply keep the
+    # IPv6 listener.
+    servers: list[tuple[str, object]] = []
+    bind_errors: list[str] = []
+    for bind_host in ("::", "0.0.0.0"):
+        try:
+            server = make_server(bind_host, port, app, threaded=True)
+            servers.append((bind_host, server))
+        except OSError as exc:
+            bind_errors.append(f"{bind_host}:{port} -> {exc}")
+
+    if not servers:
+        detail = "; ".join(bind_errors) if bind_errors else "unknown bind error"
+        raise RuntimeError(f"Failed to bind any listener on port {port}: {detail}")
+
+    for bind_host, server in servers:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print(f"CheckMyGym listening on http://[{bind_host}]:{port}" if ":" in bind_host else f"CheckMyGym listening on http://{bind_host}:{port}")
+
+    if bind_errors:
+        print("Bind warnings:", " | ".join(bind_errors))
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for _, server in servers:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+
+
+def run_http_server(app: Flask, host: str, port: int, debug_mode: bool) -> None:
+    if host == "dual":
+        if debug_mode:
+            print("FLASK_DEBUG=1 with dual mode uses production-style multi-listener without reloader.")
+        _run_dual_stack(app, port)
+        return
+    app.run(host=host, port=port, debug=debug_mode)
+
+
 app = create_app()
 start_scheduler(app)
 
@@ -194,5 +257,6 @@ if __name__ == "__main__":
     ensure_templates()
     debug_mode = os.getenv("FLASK_DEBUG", "0") == "1"
     cfg = config_mgr.load()
-    port = int(cfg.get("port", 6767))
-    app.run(host="0.0.0.0", port=port, debug=debug_mode)
+    host = _normalize_host(os.getenv("CHECKMYGYM_HOST") or str(cfg.get("host", "dual")))
+    port = int(os.getenv("CHECKMYGYM_PORT") or cfg.get("port", 6767))
+    run_http_server(app, host=host, port=port, debug_mode=debug_mode)

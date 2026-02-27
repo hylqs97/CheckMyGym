@@ -94,7 +94,11 @@ def _prompt_int(label: str, default: int, min_value: int | None = None, max_valu
         return value
 
 
-def configure(use_defaults: bool = False, init_port: int | None = None) -> dict:
+def configure(
+    use_defaults: bool = False,
+    init_port: int | None = None,
+    init_host: str | None = None,
+) -> dict:
     is_first_run = not CONFIG_FILE.exists()
     cfg_mgr = ConfigManager(str(CONFIG_FILE))
     cfg = cfg_mgr.load().copy()
@@ -105,6 +109,10 @@ def configure(use_defaults: bool = False, init_port: int | None = None) -> dict:
     elif (not is_first_run) and (init_port is not None):
         print("检测到 config.json 已存在，--port 参数将被忽略；如需改端口请手动编辑 config.json。")
 
+    if init_host is not None:
+        cfg["host"] = init_host.strip() or "dual"
+        print(f"Using bind host from CLI: {cfg['host']}")
+
     if not use_defaults:
         print("\n请按提示输入参数（回车可使用当前值）：")
         cfg["storage_dir"] = _prompt_str("数据存储目录", str(cfg["storage_dir"]))
@@ -113,6 +121,7 @@ def configure(use_defaults: bool = False, init_port: int | None = None) -> dict:
         cfg["api_base"] = _prompt_str("API 基地址", str(cfg["api_base"]))
         cfg["open_hour_start"] = _prompt_int("开始营业小时(0-23)", int(cfg.get("open_hour_start", 6)), 0, 23)
         cfg["open_hour_end"] = _prompt_int("结束营业小时(0-23)", int(cfg.get("open_hour_end", 23)), 0, 23)
+        cfg["host"] = _prompt_str("Bind host (dual/0.0.0.0/::/127.0.0.1)", str(cfg.get("host", "dual")))
     else:
         print("使用已有配置直接启动（跳过交互输入）。")
 
@@ -144,18 +153,20 @@ def _build_popen_kwargs(log):
     return kwargs
 
 
-def start(use_defaults: bool = False, port: int | None = None) -> None:
+def start(use_defaults: bool = False, port: int | None = None, host: str | None = None) -> None:
     pid = _read_pid()
     if pid and _is_running(pid):
         print(f"CheckMyGym 已在后台运行，PID={pid}。")
         return
 
-    cfg = configure(use_defaults=use_defaults, init_port=port)
+    cfg = configure(use_defaults=use_defaults, init_port=port, init_host=host)
     LOG_DIR.mkdir(exist_ok=True)
     with LOG_FILE.open("a", encoding="utf-8") as log:
         process = subprocess.Popen([sys.executable, str(ROOT / "app.py")], **_build_popen_kwargs(log))
     PID_FILE.write_text(str(process.pid), encoding="utf-8")
-    print(f"已后台启动 CheckMyGym，PID={process.pid}，端口 {cfg.get('port', 6767)}")
+    print(
+        f"CheckMyGym started in background, PID={process.pid}, host={cfg.get('host', 'dual')}, port={cfg.get('port', 6767)}"
+    )
     print(f"日志文件：{LOG_FILE}")
 
 
@@ -229,6 +240,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("action", nargs="?", default="start", choices=["start", "stop", "status"])
     parser.add_argument("--use-defaults", action="store_true", help="启动时跳过交互提问，直接使用已有配置")
     parser.add_argument("--port", type=int, default=None, help="首次运行时设置端口，默认 6767")
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Bind host: dual / 0.0.0.0 / :: / 127.0.0.1",
+    )
     return parser
 
 
@@ -238,8 +255,11 @@ def main() -> None:
     if args.port is not None and not (1 <= args.port <= 65535):
         print("--port 必须在 1 到 65535 之间")
         sys.exit(1)
+    if args.host is not None and not args.host.strip():
+        print("--host cannot be empty")
+        sys.exit(1)
     if args.action == "start":
-        start(use_defaults=args.use_defaults, port=args.port)
+        start(use_defaults=args.use_defaults, port=args.port, host=args.host)
     elif args.action == "stop":
         stop()
     elif args.action == "status":

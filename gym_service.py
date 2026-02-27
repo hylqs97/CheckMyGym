@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "api_base": "http://106.55.236.110:8999",
     "open_hour_start": 6,
     "open_hour_end": 23,
+    "host": "dual",
     "port": 6767,
     "favorites": [],
 }
