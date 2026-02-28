@@ -12,6 +12,7 @@ __pycache__/
 config.json
 data/
 *.log
+.tmp*/
 
 # OS files
 Thumbs.db
