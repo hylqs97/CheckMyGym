@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CheckMyGym 后台管理脚本（Windows / Linux）。"""
+"""CheckMyGym background management script for Windows / Linux."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import os
 import signal
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,31 +29,19 @@ def _is_windows() -> bool:
 
 
 def _is_running(pid: int) -> bool:
-    if _is_windows():
-        # os.kill(pid, 0) is unreliable on some Windows Python builds. Use WinAPI instead.
-        try:
-            import ctypes
-            from ctypes import wintypes
-        except Exception:
-            return False
+    if pid <= 0:
+        return False
 
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        STILL_ACTIVE = 259
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not handle:
-            err = ctypes.get_last_error()
-            # Access denied usually means the process exists but is owned by another user/session.
-            if err == 5:
-                return True
-            return False
-        try:
-            exit_code = wintypes.DWORD()
-            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                return True
-            return exit_code.value == STILL_ACTIVE
-        finally:
-            kernel32.CloseHandle(handle)
+    if _is_windows():
+        # `tasklist` is more reliable than OpenProcess for stale/reused PIDs.
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return f'"{pid}"' in (result.stdout or "")
+
     try:
         os.kill(pid, 0)
         return True
@@ -70,6 +60,102 @@ def _read_pid() -> int | None:
         return None
 
 
+def _load_runtime_config() -> dict:
+    try:
+        return ConfigManager(str(CONFIG_FILE)).load().copy()
+    except Exception:
+        return {"host": "dual", "port": 6767}
+
+
+def _get_process_command(pid: int) -> str:
+    if _is_windows():
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                (
+                    f'$p = Get-CimInstance Win32_Process -Filter "ProcessId = {pid}" '
+                    '-ErrorAction SilentlyContinue; if ($p) { [Console]::Out.Write($p.CommandLine) }'
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return (result.stdout or "").strip()
+
+    proc_cmdline = Path(f"/proc/{pid}/cmdline")
+    if proc_cmdline.exists():
+        try:
+            raw = proc_cmdline.read_bytes().replace(b"\x00", b" ").strip()
+            if raw:
+                return raw.decode("utf-8", errors="replace")
+        except OSError:
+            pass
+
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return (result.stdout or "").strip()
+
+
+def _is_checkmygym_process(pid: int) -> bool:
+    command = _get_process_command(pid).lower()
+    if not command:
+        return False
+
+    app_path = str(ROOT / "app.py").lower()
+    root_path = str(ROOT).lower()
+    return app_path in command or ("app.py" in command and root_path in command)
+
+
+def _iter_probe_urls(host: str, port: int) -> list[str]:
+    normalized = (host or "dual").strip().lower()
+    urls: list[str] = []
+
+    def add(url: str) -> None:
+        if url not in urls:
+            urls.append(url)
+
+    if normalized in {"", "dual"}:
+        add(f"http://127.0.0.1:{port}/")
+        add(f"http://[::1]:{port}/")
+    elif normalized == "0.0.0.0":
+        add(f"http://127.0.0.1:{port}/")
+    elif normalized == "::":
+        add(f"http://[::1]:{port}/")
+    elif ":" in normalized and not normalized.startswith("["):
+        add(f"http://[{host}]:{port}/")
+    else:
+        add(f"http://{host}:{port}/")
+
+    return urls
+
+
+def _is_service_reachable(cfg: dict | None = None) -> bool:
+    cfg = cfg or _load_runtime_config()
+    port = int(cfg.get("port", 6767))
+    host = str(cfg.get("host", "dual"))
+
+    for base_url in _iter_probe_urls(host, port):
+        url = base_url.rstrip("/") + "/api/config"
+        try:
+            with urllib.request.urlopen(url, timeout=2) as response:
+                if response.status != 200:
+                    continue
+                body = response.read(4096)
+                if b'"shop_id"' in body and b'"open_hour_start"' in body:
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            continue
+
+    return False
+
+
 def _prompt_str(label: str, default: str) -> str:
     value = input(f"{label} [{default}]: ").strip()
     return value or default
@@ -83,13 +169,13 @@ def _prompt_int(label: str, default: int, min_value: int | None = None, max_valu
         try:
             value = int(raw)
         except ValueError:
-            print("请输入整数。")
+            print("Please enter an integer.")
             continue
         if min_value is not None and value < min_value:
-            print(f"请输入不小于 {min_value} 的数字。")
+            print(f"Please enter a value greater than or equal to {min_value}.")
             continue
         if max_value is not None and value > max_value:
-            print(f"请输入不大于 {max_value} 的数字。")
+            print(f"Please enter a value less than or equal to {max_value}.")
             continue
         return value
 
@@ -105,29 +191,33 @@ def configure(
 
     if is_first_run and init_port is not None:
         cfg["port"] = init_port
-        print(f"首次运行：使用命令行端口 {init_port} 初始化配置。")
+        print(f"First run: initialized port from CLI to {init_port}.")
     elif (not is_first_run) and (init_port is not None):
-        print("检测到 config.json 已存在，--port 参数将被忽略；如需改端口请手动编辑 config.json。")
+        print("config.json already exists; ignoring --port. Edit config.json if you want to change the port.")
 
     if init_host is not None:
         cfg["host"] = init_host.strip() or "dual"
         print(f"Using bind host from CLI: {cfg['host']}")
 
     if not use_defaults:
-        print("\n请按提示输入参数（回车可使用当前值）：")
-        cfg["storage_dir"] = _prompt_str("数据存储目录", str(cfg["storage_dir"]))
-        cfg["poll_interval_minutes"] = _prompt_int("轮询间隔（分钟）", int(cfg["poll_interval_minutes"]), min_value=1)
-        cfg["shop_id"] = _prompt_int("门店 ID", int(cfg["shop_id"]), min_value=1)
-        cfg["api_base"] = _prompt_str("API 基地址", str(cfg["api_base"]))
-        cfg["open_hour_start"] = _prompt_int("开始营业小时(0-23)", int(cfg.get("open_hour_start", 6)), 0, 23)
-        cfg["open_hour_end"] = _prompt_int("结束营业小时(0-23)", int(cfg.get("open_hour_end", 23)), 0, 23)
+        print("\nEnter values or press Enter to keep the current setting:")
+        cfg["storage_dir"] = _prompt_str("Storage directory", str(cfg["storage_dir"]))
+        cfg["poll_interval_minutes"] = _prompt_int(
+            "Polling interval (minutes)",
+            int(cfg["poll_interval_minutes"]),
+            min_value=1,
+        )
+        cfg["shop_id"] = _prompt_int("Shop ID", int(cfg["shop_id"]), min_value=1)
+        cfg["api_base"] = _prompt_str("API base URL", str(cfg["api_base"]))
+        cfg["open_hour_start"] = _prompt_int("Opening hour start (0-23)", int(cfg.get("open_hour_start", 6)), 0, 23)
+        cfg["open_hour_end"] = _prompt_int("Opening hour end (0-23)", int(cfg.get("open_hour_end", 23)), 0, 23)
         cfg["host"] = _prompt_str("Bind host (dual/0.0.0.0/::/127.0.0.1)", str(cfg.get("host", "dual")))
     else:
-        print("使用已有配置直接启动（跳过交互输入）。")
+        print("Using existing config and skipping interactive prompts.")
 
     if cfg["open_hour_start"] == cfg["open_hour_end"]:
         cfg["open_hour_end"] = (cfg["open_hour_start"] + 1) % 24
-        print(f"开始/结束小时不能相同，已自动设置结束小时为 {cfg['open_hour_end']}。")
+        print(f"Opening and closing hours cannot be the same; adjusted closing hour to {cfg['open_hour_end']}.")
 
     cfg_mgr.save(cfg)
     DataStore(cfg["storage_dir"])
@@ -154,9 +244,21 @@ def _build_popen_kwargs(log):
 
 
 def start(use_defaults: bool = False, port: int | None = None, host: str | None = None) -> None:
+    current_cfg = _load_runtime_config()
     pid = _read_pid()
-    if pid and _is_running(pid):
-        print(f"CheckMyGym 已在后台运行，PID={pid}。")
+
+    if pid:
+        if _is_running(pid):
+            if _is_checkmygym_process(pid) or _is_service_reachable(current_cfg):
+                print(f"CheckMyGym is already running, PID={pid}.")
+                return
+            print("Found a stale or unrelated PID file. Cleaning it up before starting.")
+            PID_FILE.unlink(missing_ok=True)
+        else:
+            print("Found a stale PID file. Cleaning it up before starting.")
+            PID_FILE.unlink(missing_ok=True)
+    elif _is_service_reachable(current_cfg):
+        print("CheckMyGym is responding on the configured port, but the PID file is missing. Refusing to start a duplicate instance.")
         return
 
     cfg = configure(use_defaults=use_defaults, init_port=port, init_host=host)
@@ -167,7 +269,7 @@ def start(use_defaults: bool = False, port: int | None = None, host: str | None 
     print(
         f"CheckMyGym started in background, PID={process.pid}, host={cfg.get('host', 'dual')}, port={cfg.get('port', 6767)}"
     )
-    print(f"日志文件：{LOG_FILE}")
+    print(f"Log file: {LOG_FILE}")
 
 
 def _stop_windows_process_tree(pid: int) -> bool:
@@ -204,42 +306,63 @@ def _stop_posix_process_group(pid: int) -> bool:
 def stop() -> None:
     pid = _read_pid()
     if not pid:
-        print("未找到 PID 文件，服务可能未启动。")
+        if _is_service_reachable():
+            print("CheckMyGym is responding, but the PID file is missing. Stop it manually if needed.")
+        else:
+            print("PID file not found; CheckMyGym may not be running.")
         return
     if not _is_running(pid):
-        print("PID 不存在，清理旧 PID 文件。")
+        print("PID is not running. Cleaning up the stale PID file.")
+        PID_FILE.unlink(missing_ok=True)
+        return
+    if not _is_checkmygym_process(pid):
+        print("PID file points to a different process. Cleaning the PID file without killing anything.")
         PID_FILE.unlink(missing_ok=True)
         return
 
     try:
         stopped = _stop_windows_process_tree(pid) if _is_windows() else _stop_posix_process_group(pid)
     except Exception as exc:
-        print(f"停止失败：{exc}")
+        print(f"Failed to stop CheckMyGym: {exc}")
         sys.exit(1)
 
     PID_FILE.unlink(missing_ok=True)
     if stopped:
-        print(f"已停止 CheckMyGym（PID={pid}）。")
+        print(f"Stopped CheckMyGym (PID={pid}).")
     else:
-        print("进程已不存在，已清理 PID 文件。")
+        print("Process was already gone; cleaned the PID file.")
 
 
 def status() -> None:
+    cfg = _load_runtime_config()
     pid = _read_pid()
-    if not pid:
-        print("CheckMyGym 未运行。")
+
+    if pid and _is_running(pid) and _is_checkmygym_process(pid):
+        print(f"CheckMyGym is running, PID={pid}.")
         return
-    if _is_running(pid):
-        print(f"CheckMyGym 正在运行，PID={pid}。")
+
+    if _is_service_reachable(cfg):
+        if pid:
+            print("CheckMyGym is responding, but the PID file does not match the current process.")
+        else:
+            print("CheckMyGym is responding, but the PID file is missing.")
+        return
+
+    if pid:
+        print("PID file exists, but the process is not running. Run `stop` to clean it up.")
     else:
-        print("PID 文件存在但进程不在运行，建议执行 stop 清理。")
+        print("CheckMyGym is not running.")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CheckMyGym 后台管理脚本（Windows/Linux）")
+    parser = argparse.ArgumentParser(description="CheckMyGym background management script (Windows/Linux)")
     parser.add_argument("action", nargs="?", default="start", choices=["start", "stop", "status"])
-    parser.add_argument("--use-defaults", action="store_true", help="启动时跳过交互提问，直接使用已有配置")
-    parser.add_argument("--port", type=int, default=None, help="首次运行时设置端口，默认 6767")
+    parser.add_argument(
+        "--use-defaults",
+        action="store_true",
+        help="Skip interactive prompts and use the existing config",
+    )
+    parser.add_argument("--port", type=int, default=None, help="Port for first run initialization (default: 6767)")
     parser.add_argument(
         "--host",
         type=str,
@@ -253,11 +376,12 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     if args.port is not None and not (1 <= args.port <= 65535):
-        print("--port 必须在 1 到 65535 之间")
+        print("--port must be between 1 and 65535.")
         sys.exit(1)
     if args.host is not None and not args.host.strip():
-        print("--host cannot be empty")
+        print("--host cannot be empty.")
         sys.exit(1)
+
     if args.action == "start":
         start(use_defaults=args.use_defaults, port=args.port, host=args.host)
     elif args.action == "stop":

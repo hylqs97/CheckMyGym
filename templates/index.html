@@ -1,793 +1,147 @@
-<!doctype html>
-<html lang="zh-CN">
+﻿<!doctype html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>健身房人数监控</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-    <style>
-      :root {
-        color-scheme: dark;
-      }
-
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        font-family: 'Outfit', 'Segoe UI', system-ui, -apple-system, sans-serif;
-        background: radial-gradient(circle at top, rgba(110, 139, 255, 0.25), transparent 40%),
-          radial-gradient(circle at 20% 20%, rgba(159, 122, 234, 0.18), transparent 35%),
-          #050816;
-        min-height: 100vh;
-        width: 100%;
-        overflow-x: hidden;
-      }
-
-      #root {
-        position: relative;
-        width: 100%;
-        overflow-x: clip;
-      }
-
-      .bg-overlay {
-        position: fixed;
-        inset: 0;
-        background: linear-gradient(135deg, rgba(110, 139, 255, 0.18), rgba(102, 212, 131, 0.1));
-        pointer-events: none;
-        mix-blend-mode: screen;
-        z-index: 0;
-      }
-
-      .content-shell {
-        position: relative;
-        z-index: 1;
-        overflow-x: clip;
-      }
-
-      @media (max-width: 900px) {
-        .dashboard-grid {
-          width: 100% !important;
-          margin: 0 !important;
-        }
-
-        .dashboard-grid > .dashboard-main,
-        .dashboard-grid > .dashboard-side {
-          padding-left: 0 !important;
-          padding-right: 0 !important;
-        }
-
-        .dashboard-main-grid {
-          width: 100% !important;
-          margin: 0 !important;
-        }
-
-        .dashboard-main-grid > .MuiGrid-item {
-          padding-left: 0 !important;
-          padding-right: 0 !important;
-        }
-      }
-    </style>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script crossorigin src="https://unpkg.com/@emotion/react@11.11.4/dist/emotion-react.umd.min.js"></script>
-    <script crossorigin src="https://unpkg.com/@emotion/styled@11.11.5/dist/emotion-styled.umd.min.js"></script>
-    <script crossorigin src="https://unpkg.com/@mui/material@5.15.20/umd/material-ui.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <title>CheckMyGym</title>
+    <meta name="description" content="Lightweight dashboard for gym occupancy tracking." />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}" />
+    <script defer src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
   </head>
   <body>
-    {% raw %}
-    <div class="bg-overlay"></div>
-    <div id="root" class="content-shell"></div>
-    <script type="text/babel">
-      const { useEffect, useMemo, useRef, useState } = React;
-      const { createRoot } = ReactDOM;
-      const {
-        Alert,
-        Avatar,
-        Box,
-        Button,
-        Card,
-        CardContent,
-        Chip,
-        Container,
-        CssBaseline,
-        Divider,
-        FormControlLabel,
-        Grid,
-        IconButton,
-        Stack,
-        Switch,
-        TextField,
-        Tooltip,
-        ToggleButton,
-        ToggleButtonGroup,
-        Typography,
-        createTheme,
-        ThemeProvider,
-      } = MaterialUI;
-      const Favorite = () => <span aria-hidden="true">★</span>;
-      const FavoriteBorder = () => <span aria-hidden="true">☆</span>;
-      const NotificationsActive = () => <span aria-hidden="true">🔔</span>;
-      const NotificationsOff = () => <span aria-hidden="true">🔕</span>;
-      const Refresh = () => <span aria-hidden="true">↻</span>;
-      const Save = () => <span aria-hidden="true">💾</span>;
-      const AccessTime = () => <span aria-hidden="true">⏱</span>;
-      const People = () => <span aria-hidden="true">👥</span>;
+    <div class="page-shell">
+      <header class="hero panel">
+        <div>
+          <p class="eyebrow">Fast dashboard</p>
+          <h1>CheckMyGym</h1>
+          <p class="hero-copy">
+            Lightweight occupancy tracking with faster startup, smaller payloads, and a mobile-first dashboard.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="notify-toggle" class="button secondary" type="button">Enable Low-Traffic Alerts</button>
+          <button id="refresh-now" class="button" type="button">Refresh Data</button>
+        </div>
+      </header>
 
-      const NOTIFY_STORAGE_KEY = 'gym-notify-enabled';
-      const NOTIFY_THRESHOLD = 4;
-      const NOTIFY_COOLDOWN = 5 * 60 * 1000;
+      <section class="stats-grid">
+        <article class="panel stat-card">
+          <span class="stat-label">Current Occupancy</span>
+          <strong id="current-count" class="stat-value">--</strong>
+        </article>
+        <article class="panel stat-card">
+          <span class="stat-label">Favorites</span>
+          <strong id="favorite-count" class="stat-value">--</strong>
+        </article>
+        <article class="panel stat-card">
+          <span class="stat-label">Samples Loaded</span>
+          <strong id="sample-count" class="stat-value">--</strong>
+        </article>
+        <article class="panel stat-card">
+          <span class="stat-label">Last Update</span>
+          <strong id="last-updated" class="stat-value compact">--</strong>
+        </article>
+      </section>
 
-      async function fetchJSON(url, opts = {}) {
-        const res = await fetch(url, {
-          headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-          ...opts,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || res.statusText || '请求失败');
-        }
-        return res.json();
-      }
+      <main class="layout-grid">
+        <section class="column-stack">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Current Members</h2>
+                <p id="open-hours-label" class="muted">Open hours: --</p>
+              </div>
+            </div>
+            <div id="current-people-list" class="card-list empty-state">Loading current members...</div>
+          </section>
 
-      function isOpenHour(ts, start, end) {
-        if (!ts) return true;
-        const hour = Number(ts.slice(11, 13));
-        if (Number.isNaN(hour)) return true;
-        if (start <= end) return hour >= start && hour < end;
-        return hour >= start || hour < end;
-      }
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Favorite Member History</h2>
+                <p class="muted">Use the star icon to remove a favorite.</p>
+              </div>
+            </div>
+            <div id="favorite-records-list" class="card-list empty-state">Loading favorite history...</div>
+          </section>
+        </section>
 
-      function ChartCanvas({ type, labels, values, label, height = 220, denseX = false }) {
-        const canvasRef = useRef(null);
-        useEffect(() => {
-          if (!canvasRef.current) return undefined;
-          const xTickStep = denseX && labels.length > 0 ? Math.max(1, Math.ceil(labels.length / 8)) : 1;
-          const chart = new Chart(canvasRef.current, {
-            type,
-            data: {
-              labels,
-              datasets: [
-                {
-                  label,
-                  data: values,
-                  borderColor: type === 'line' ? '#6e8bff' : '#66d483',
-                  backgroundColor: type === 'line' ? 'rgba(110,139,255,0.2)' : '#66d483',
-                  fill: type === 'line',
-                  tension: 0.35,
-                  borderRadius: 6,
-                  borderWidth: type === 'line' ? 2.5 : 0,
-                  pointRadius: type === 'line' ? (values.length > 40 ? 0 : 2) : 0,
-                  pointHoverRadius: type === 'line' ? 4 : 0,
-                  maxBarThickness: type === 'bar' ? 28 : undefined,
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              animation: false,
-              plugins: { legend: { display: false } },
-              scales: {
-                x: {
-                  grid: { display: !denseX, color: 'rgba(255,255,255,0.04)' },
-                  ticks: {
-                    color: 'rgba(255,255,255,0.6)',
-                    autoSkip: false,
-                    maxRotation: denseX ? 35 : 0,
-                    minRotation: denseX ? 35 : 0,
-                    callback: function (value, index) {
-                      if (denseX && index % xTickStep !== 0) return '';
-                      return this.getLabelForValue(value);
-                    },
-                  },
-                },
-                y: {
-                  beginAtZero: true,
-                  grid: { color: 'rgba(255,255,255,0.06)' },
-                  ticks: {
-                    color: 'rgba(255,255,255,0.6)',
-                    precision: type === 'line' ? 0 : 1,
-                  },
-                },
-              },
-            },
-          });
-          return () => chart.destroy();
-        }, [type, label, labels, values, denseX]);
+        <section class="column-stack">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Average by Weekday</h2>
+                <p class="muted">Aggregated from cached samples.</p>
+              </div>
+            </div>
+            <div id="weekday-bars" class="bar-list empty-state">Loading weekday averages...</div>
+          </section>
 
-        return (
-          <Box sx={{ position: 'relative', height }}>
-            <canvas ref={canvasRef} />
-          </Box>
-        );
-      }
+          <section class="panel">
+            <div class="panel-head panel-head-wrap">
+              <div>
+                <h2>Average by Hour</h2>
+                <p class="muted">Filter by weekday to compare time windows.</p>
+              </div>
+              <label class="field-inline">
+                <span>Scope</span>
+                <select id="hour-scope">
+                  <option value="all">All days</option>
+                  <option value="0">Monday</option>
+                  <option value="1">Tuesday</option>
+                  <option value="2">Wednesday</option>
+                  <option value="3">Thursday</option>
+                  <option value="4">Friday</option>
+                  <option value="5">Saturday</option>
+                  <option value="6">Sunday</option>
+                </select>
+              </label>
+            </div>
+            <div id="hour-bars" class="bar-list empty-state">Loading hourly averages...</div>
+          </section>
 
-      function CurrentPeople({ people, favorites, onToggleFavorite, snapshotTime }) {
-        if (!people?.length) {
-          return (
-            <Card variant="outlined" sx={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.12)' }}>
-              <CardContent>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <People fontSize="small" />
-                  <Typography variant="body2" color="text.secondary">
-                    当前无人健身
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
-          );
-        }
+          <section class="panel">
+            <div class="panel-head panel-head-wrap">
+              <div>
+                <h2>Configuration</h2>
+                <p class="muted">Saved changes apply immediately to the scheduler.</p>
+              </div>
+              <button id="poll-now" class="button secondary" type="button">Poll Now</button>
+            </div>
+            <form id="config-form" class="form-grid">
+              <label>
+                <span>Storage Directory</span>
+                <input id="storage_dir" name="storage_dir" type="text" />
+              </label>
+              <label>
+                <span>Polling Interval (min)</span>
+                <input id="poll_interval_minutes" name="poll_interval_minutes" type="number" min="1" />
+              </label>
+              <label>
+                <span>Shop ID</span>
+                <input id="shop_id" name="shop_id" type="number" min="1" />
+              </label>
+              <label>
+                <span>API Base URL</span>
+                <input id="api_base" name="api_base" type="text" />
+              </label>
+              <label>
+                <span>Open Hour Start</span>
+                <input id="open_hour_start" name="open_hour_start" type="number" min="0" max="23" />
+              </label>
+              <label>
+                <span>Open Hour End</span>
+                <input id="open_hour_end" name="open_hour_end" type="number" min="0" max="23" />
+              </label>
+              <div class="form-actions">
+                <button id="save-config" class="button" type="submit">Save Config</button>
+              </div>
+            </form>
+          </section>
+        </section>
+      </main>
 
-        return (
-          <Stack spacing={1.25}>
-            {people.map((p) => {
-              const pid = String(p.id ?? '');
-              const favorited = favorites.has(pid);
-              return (
-                <Card
-                  key={pid || p.name}
-                  variant="outlined"
-                  sx={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.16)' }}
-                >
-                  <CardContent>
-                    <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
-                      {p.avatar ? (
-                        <Avatar src={p.avatar} alt={p.name} sx={{ width: 52, height: 52 }} />
-                      ) : (
-                        <Avatar sx={{ width: 52, height: 52 }}>{p.name?.slice(0, 1) || '?'}</Avatar>
-                      )}
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                          {p.name || '匿名用户'}
-                        </Typography>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <AccessTime fontSize="small" />
-                          <Typography variant="body2" color="text.secondary">
-                            停留 {p.minutes ?? 0} 分钟
-                          </Typography>
-                        </Stack>
-                      </Box>
-                      <Tooltip title={favorited ? '取消收藏' : '收藏成员'}>
-                        <IconButton color={favorited ? 'warning' : 'default'} onClick={() => onToggleFavorite(pid, p.name, p.avatar)}>
-                          {favorited ? <Favorite /> : <FavoriteBorder />}
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {snapshotTime ? (
-              <Typography variant="caption" color="text.secondary" textAlign="right">
-                最新数据：{snapshotTime}
-              </Typography>
-            ) : null}
-          </Stack>
-        );
-      }
-
-      function shortTs(ts) {
-        if (!ts) return '--';
-        const s = String(ts);
-        return s.length >= 16 ? s.slice(5, 16) : s;
-      }
-
-      function FavoriteHistory({ items, onRemoveFavorite }) {
-        if (!items?.length) {
-          return (
-            <Typography variant="body2" color="text.secondary">
-              暂无收藏成员
-            </Typography>
-          );
-        }
-
-        return (
-          <Stack spacing={1.25}>
-            {items.map((item) => (
-              <Card
-                key={item.id}
-                variant="outlined"
-                sx={{ background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.12)' }}
-              >
-                <CardContent sx={{ '&:last-child': { pb: 1.5 } }}>
-                  <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-                    {item.avatar ? (
-                      <Avatar src={item.avatar} alt={item.name} sx={{ width: 38, height: 38 }} />
-                    ) : (
-                      <Avatar sx={{ width: 38, height: 38 }}>{String(item.name || item.id || '?').slice(0, 1)}</Avatar>
-                    )}
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="subtitle2" noWrap title={item.name}>
-                        {item.name || `ID ${item.id}`}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" noWrap>
-                        ID {item.id}
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { xs: 0, sm: 'auto' } }}>
-                      <Chip
-                        size="small"
-                        color={item.is_current ? 'success' : 'default'}
-                        variant={item.is_current ? 'filled' : 'outlined'}
-                        label={item.is_current ? '在馆' : '离馆'}
-                      />
-                      <Tooltip title="取消收藏">
-                        <IconButton
-                          size="small"
-                          color="warning"
-                          onClick={() => onRemoveFavorite?.(String(item.id ?? ''), item.name, item.avatar)}
-                        >
-                          <Favorite />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  </Stack>
-
-                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
-                    最近出现：{shortTs(item.last_seen)} · 最近停留 {Number(item.last_minutes ?? 0)} 分钟
-                  </Typography>
-
-                  {item.recent_records?.length ? (
-                    <Stack spacing={0.75} sx={{ mt: 1.1 }}>
-                      {item.recent_records.slice(0, 3).map((rec, idx) => (
-                        <Box
-                          key={`${item.id}-${rec.start || rec.end || idx}-${idx}`}
-                          sx={{
-                            px: 1,
-                            py: 0.75,
-                            borderRadius: 1.5,
-                            background: 'rgba(255,255,255,0.04)',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                          }}
-                        >
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            {rec.current ? '当前这次' : '历史记录'} · {shortTs(rec.start)} - {shortTs(rec.end)}
-                          </Typography>
-                          <Typography variant="body2">
-                            停留 {Number(rec.minutes_end ?? rec.max_minutes ?? 0)} 分钟 · 采样 {Number(rec.samples ?? 1)} 次
-                          </Typography>
-                        </Box>
-                      ))}
-                    </Stack>
-                  ) : (
-                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                      最近 2000 条数据中暂无记录
-                    </Typography>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </Stack>
-        );
-      }
-
-      function App() {
-        const [config, setConfig] = useState(null);
-        const [loading, setLoading] = useState(false);
-        const [saving, setSaving] = useState(false);
-        const [data, setData] = useState(null);
-        const [hourScope, setHourScope] = useState('all');
-        const [notifyEnabled, setNotifyEnabled] = useState(false);
-        const favoritesSet = useMemo(() => new Set((data?.favorites || []).map((x) => String(x))), [data]);
-        const lastNotifyRef = useRef(0);
-
-        const openStart = Number(data?.open_hours?.start ?? config?.open_hour_start ?? 6);
-        const openEnd = Number(data?.open_hours?.end ?? config?.open_hour_end ?? 23);
-
-        useEffect(() => {
-          (async () => {
-            try {
-              setLoading(true);
-              const cfg = await fetchJSON('/api/config');
-              setConfig(cfg);
-            } catch (err) {
-              console.error(err);
-            } finally {
-              setLoading(false);
-            }
-          })();
-        }, []);
-
-        useEffect(() => {
-          if (typeof window === 'undefined' || !('Notification' in window)) return;
-          try {
-            const saved = localStorage.getItem(NOTIFY_STORAGE_KEY);
-            if (saved === '1' && Notification.permission === 'granted') {
-              setNotifyEnabled(true);
-            }
-          } catch (err) {
-            console.warn('读取通知偏好失败', err);
-          }
-        }, []);
-
-        const refreshData = async () => {
-          try {
-            const res = await fetchJSON('/api/data');
-            setData(res);
-          } catch (err) {
-            console.error(err);
-          }
-        };
-
-        useEffect(() => {
-          refreshData();
-          const timer = setInterval(refreshData, 60_000);
-          return () => clearInterval(timer);
-        }, []);
-
-        useEffect(() => {
-          if (!notifyEnabled || !data || !('Notification' in window) || Notification.permission !== 'granted') return;
-          const series = (data.series || []).filter((item) => isOpenHour(item.t, openStart, openEnd));
-          const latest = series[series.length - 1] || (data.series || []).slice(-1)[0];
-          if (!latest) return;
-          const people = Number(latest.people_num ?? latest.people ?? 0);
-          if (Number.isNaN(people) || people > NOTIFY_THRESHOLD) return;
-          const now = Date.now();
-          if (now - lastNotifyRef.current < NOTIFY_COOLDOWN) return;
-          lastNotifyRef.current = now;
-          try {
-            new Notification('健身房人数提醒', { body: `当前人数 ${people} 人，适合前往健身房。`, tag: 'gym-low-occupancy' });
-          } catch (err) {
-            console.error('发送通知失败', err);
-          }
-        }, [data, notifyEnabled, openStart, openEnd]);
-
-        const handleSaveConfig = async () => {
-          if (!config) return;
-          setSaving(true);
-          try {
-            const payload = {
-              storage_dir: config.storage_dir,
-              poll_interval_minutes: Number(config.poll_interval_minutes || 5),
-              shop_id: Number(config.shop_id || 218),
-              api_base: config.api_base,
-              open_hour_start: Number(config.open_hour_start || openStart),
-              open_hour_end: Number(config.open_hour_end || openEnd),
-            };
-            await fetchJSON('/api/config', { method: 'POST', body: JSON.stringify(payload) });
-            setConfig((prev) => ({ ...prev, ...payload }));
-          } catch (err) {
-            alert('保存配置失败');
-          } finally {
-            setSaving(false);
-          }
-        };
-
-        const handlePollNow = async () => {
-          await fetchJSON('/api/poll', { method: 'POST' });
-          setTimeout(refreshData, 1200);
-        };
-        const setFavoriteStatus = async (id, favorite, name, avatar) => {
-          if (!id) return;
-          try {
-            const res = await fetchJSON('/api/favorites', {
-              method: 'POST',
-              body: JSON.stringify({ id, favorite, name, avatar }),
-            });
-            setData((prev) => ({ ...(prev || {}), favorites: res.favorites || [] }));
-            refreshData();
-          } catch (err) {
-            alert('Failed to update favorite status');
-          }
-        };
-
-        const handleToggleFavorite = async (id, name, avatar) => {
-          await setFavoriteStatus(id, !favoritesSet.has(String(id)), name, avatar);
-        };
-
-        const handleRemoveFavorite = async (id, name, avatar) => {
-          await setFavoriteStatus(id, false, name, avatar);
-        };
-
-        const handleToggleNotify = async () => {
-          if (!('Notification' in window)) {
-            alert('当前浏览器不支持通知');
-            return;
-          }
-          if (notifyEnabled) {
-            setNotifyEnabled(false);
-            localStorage.removeItem(NOTIFY_STORAGE_KEY);
-            return;
-          }
-          let permission = Notification.permission;
-          if (permission === 'default') {
-            try {
-              permission = await Notification.requestPermission();
-            } catch (err) {
-              alert('通知授权失败');
-              return;
-            }
-          }
-          if (permission !== 'granted') {
-            alert('浏览器未授予通知权限');
-            return;
-          }
-          setNotifyEnabled(true);
-          localStorage.setItem(NOTIFY_STORAGE_KEY, '1');
-          lastNotifyRef.current = 0;
-        };
-
-        const weekdayEntries = useMemo(() => {
-          const wk = data?.weekday_avg || {};
-          return Object.entries(wk)
-            .map(([k, v]) => [Number(k), v])
-            .sort((a, b) => a[0] - b[0]);
-        }, [data]);
-
-        const hourDataset = useMemo(() => {
-          const base = hourScope === 'all' ? data?.hour_avg : data?.weekday_hour_avg?.[hourScope];
-          const values = [];
-          const labels = [];
-          for (let h = openStart; h < openEnd; h += 1) {
-            labels.push(`${String(h).padStart(2, '0')}:00`);
-            values.push(Number(base?.[String(h)] ?? 0));
-          }
-          return { labels, values };
-        }, [data, hourScope, openStart, openEnd]);
-
-        const theme = useMemo(
-          () =>
-            createTheme({
-              palette: {
-                mode: 'dark',
-                background: { default: 'transparent', paper: 'rgba(255,255,255,0.06)' },
-                primary: { main: '#6e8bff' },
-                secondary: { main: '#66d483' },
-              },
-              shape: { borderRadius: 16 },
-            }),
-          [],
-        );
-
-        return (
-          <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <Container
-              maxWidth="lg"
-              disableGutters
-              sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, md: 4 }, mx: 'auto', boxSizing: 'border-box' }}
-            >
-              <Stack spacing={3}>
-                <Box textAlign="center">
-                  <Chip label="实时监控 · React + Material UI" color="primary" variant="outlined" sx={{ mb: 2 }} />
-                  <Typography variant="h4" fontWeight={700} gutterBottom>
-                    健身房人数监控
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary">
-                    以 React 组件重构的液态玻璃风格仪表盘，展示实时人数、趋势与在馆成员。
-                  </Typography>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="center" alignItems="stretch" sx={{ mt: 2 }}>
-                    <Button
-                      variant="contained"
-                      color={notifyEnabled ? 'secondary' : 'primary'}
-                      startIcon={notifyEnabled ? <NotificationsActive /> : <NotificationsOff />}
-                      onClick={handleToggleNotify}
-                    >
-                      {notifyEnabled ? '关闭低人流提醒' : '启用低人流提醒'}
-                    </Button>
-                    <Button variant="outlined" startIcon={<Refresh />} onClick={refreshData}>
-                      刷新数据
-                    </Button>
-                  </Stack>
-                </Box>
-
-                <Grid className="dashboard-grid" container spacing={{ xs: 1.5, md: 2.5 }}>
-                  <Grid className="dashboard-main" item xs={12} md={8} order={{ xs: 2, md: 2 }} sx={{ minWidth: 0 }}>
-                    <Grid className="dashboard-main-grid" container spacing={{ xs: 1.5, md: 2.5 }}>
-
-                      <Grid item xs={12}>
-                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
-                          <CardContent>
-                            <Typography variant="h6" gutterBottom>
-                              按星期平均人数
-                            </Typography>
-                            <ChartCanvas
-                              type="bar"
-                              labels={weekdayEntries.map(([k]) => `周${'一二三四五六日'[k]}`)}
-                              values={weekdayEntries.map(([, v]) => v)}
-                              label="平均人数"
-                              height={210}
-                            />
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                      <Grid item xs={12}>
-                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
-                          <CardContent>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems="center" spacing={2}>
-                              <Typography variant="h6">按小时平均人数</Typography>
-                              <ToggleButtonGroup
-                                exclusive
-                                size="small"
-                                value={hourScope}
-                                onChange={(e, val) => val && setHourScope(val)}
-                                sx={{ flexWrap: 'wrap', justifyContent: { xs: 'flex-start', sm: 'center' } }}
-                              >
-                                <ToggleButton value="all">全部</ToggleButton>
-                                <ToggleButton value="0">周一</ToggleButton>
-                                <ToggleButton value="1">周二</ToggleButton>
-                                <ToggleButton value="2">周三</ToggleButton>
-                                <ToggleButton value="3">周四</ToggleButton>
-                                <ToggleButton value="4">周五</ToggleButton>
-                                <ToggleButton value="5">周六</ToggleButton>
-                                <ToggleButton value="6">周日</ToggleButton>
-                              </ToggleButtonGroup>
-                            </Stack>
-                            <Box mt={2}>
-                              <ChartCanvas
-                                type="bar"
-                                labels={hourDataset.labels}
-                                values={hourDataset.values}
-                                label="平均人数"
-                                denseX={hourDataset.labels.length > 12}
-                                height={260}
-                              />
-                            </Box>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                      <Grid item xs={12}>
-                        <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
-                          <CardContent>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                              <Typography variant="h6" sx={{ flex: 1 }}>
-                                配置
-                              </Typography>
-                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-                                <Button variant="contained" startIcon={<Save />} onClick={handleSaveConfig} disabled={!config || saving}>
-                                  保存配置
-                                </Button>
-                                <Button variant="outlined" startIcon={<Refresh />} onClick={handlePollNow}>
-                                  立即抓取一次
-                                </Button>
-                              </Stack>
-                            </Stack>
-                            <Divider sx={{ my: 2 }} />
-                            <Grid container spacing={2}>
-                              <Grid item xs={12} md={6}>
-                                <TextField
-                                  fullWidth
-                                  label="数据存储目录"
-                                  value={config?.storage_dir || ''}
-                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), storage_dir: e.target.value }))}
-                                />
-                              </Grid>
-                              <Grid item xs={12} md={6}>
-                                <TextField
-                                  fullWidth
-                                  type="number"
-                                  label="轮询间隔（分钟）"
-                                  value={config?.poll_interval_minutes ?? ''}
-                                  onChange={(e) =>
-                                    setConfig((prev) => ({ ...(prev || {}), poll_interval_minutes: Number(e.target.value) }))
-                                  }
-                                />
-                              </Grid>
-                              <Grid item xs={12} md={6}>
-                                <TextField
-                                  fullWidth
-                                  type="number"
-                                  label="门店 ID（shop_id）"
-                                  value={config?.shop_id ?? ''}
-                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), shop_id: Number(e.target.value) }))}
-                                />
-                              </Grid>
-                              <Grid item xs={12} md={6}>
-                                <TextField
-                                  fullWidth
-                                  label="API 基地址"
-                                  value={config?.api_base || ''}
-                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), api_base: e.target.value }))}
-                                />
-                              </Grid>
-                              <Grid item xs={12} md={6}>
-                                <TextField
-                                  fullWidth
-                                  type="number"
-                                  label="统计开始小时（0-23）"
-                                  value={config?.open_hour_start ?? ''}
-                                  onChange={(e) =>
-                                    setConfig((prev) => ({ ...(prev || {}), open_hour_start: Number(e.target.value) }))
-                                  }
-                                />
-                              </Grid>
-                              <Grid item xs={12} md={6}>
-                                <TextField
-                                  fullWidth
-                                  type="number"
-                                  label="统计结束小时（0-23）"
-                                  value={config?.open_hour_end ?? ''}
-                                  onChange={(e) => setConfig((prev) => ({ ...(prev || {}), open_hour_end: Number(e.target.value) }))}
-                                />
-                              </Grid>
-                            </Grid>
-                            <Alert severity="info" sx={{ mt: 2 }}>
-                              开放时间：{String(openStart).padStart(2, '0')}:00 - {String(openEnd).padStart(2, '0')}:00（过滤统计与通知阈值）
-                            </Alert>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    </Grid>
-                  </Grid>
-                  <Grid className="dashboard-side" item xs={12} md={4} order={{ xs: 1, md: 1 }} sx={{ minWidth: 0 }}>
-                    <Stack spacing={2.5}>
-                      <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
-                        <CardContent>
-                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1.5}>
-                            <Typography variant="h6">当前在馆成员</Typography>
-                            <Chip label={`开馆 ${openStart}:00 - ${openEnd}:00`} variant="outlined" color="secondary" size="small" />
-                          </Stack>
-                          <Box mt={2}>
-                            <CurrentPeople
-                              people={data?.current_people || []}
-                              favorites={favoritesSet}
-                              onToggleFavorite={handleToggleFavorite}
-                              snapshotTime={data?.last_timestamp}
-                            />
-                          </Box>
-                        </CardContent>
-                      </Card>
-                      <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
-                        <CardContent>
-                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
-                            <Typography variant="h6">收藏健身记录</Typography>
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              color="warning"
-                              label={`${(data?.favorite_records || []).filter((x) => x.is_current).length} 在馆`}
-                            />
-                          </Stack>
-                          <Box mt={2} sx={{ maxHeight: { xs: 320, md: 420 }, overflowY: 'auto', pr: 0.5 }}>
-                            <FavoriteHistory items={data?.favorite_records || []} onRemoveFavorite={handleRemoveFavorite} />
-                          </Box>
-                        </CardContent>
-                      </Card>
-                      <Card elevation={6} sx={{ backdropFilter: 'blur(12px)' }}>
-                        <CardContent>
-                          <Typography variant="h6" gutterBottom>
-                            状态
-                          </Typography>
-                          <Stack spacing={1.5}>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Chip size="small" color="success" label={loading ? '加载中' : '运行中'} />
-                              <Typography variant="body2" color="text.secondary">
-                                配置与调度在后台运行
-                              </Typography>
-                            </Stack>
-                            <FormControlLabel
-                              control={<Switch checked={notifyEnabled} onChange={handleToggleNotify} />}
-                              label="低人流浏览器通知"
-                            />
-                            <Typography variant="body2" color="text.secondary">
-                              收藏列表：{data?.favorites?.length || 0} 个 · 当前数据点：{data?.series?.length || 0}
-                            </Typography>
-                          </Stack>
-                        </CardContent>
-                      </Card>
-                    </Stack>
-                  </Grid>
-                </Grid>
-
-                <Box textAlign="center" py={2}>
-                  <Divider sx={{ mb: 2 }} />
-                  <Typography variant="body2" color="text.secondary">
-                    React + Material UI 前端 · 后端 Flask + APScheduler · 数据 JSONL
-                  </Typography>
-                </Box>
-              </Stack>
-            </Container>
-          </ThemeProvider>
-        );
-      }
-
-      const root = createRoot(document.getElementById('root'));
-      root.render(<App />);
-    </script>
-    {% endraw %}
+      <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+    </div>
   </body>
 </html>

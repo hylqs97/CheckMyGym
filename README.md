@@ -1,213 +1,174 @@
-# CheckMyGym
+﻿# CheckMyGym
 
-用于采集健身房实时人数数据，并在本地提供可视化面板（Flask + React + Material UI + Chart.js）。
+CheckMyGym is a lightweight Flask dashboard for tracking gym occupancy. It polls the upstream gym API on a schedule, stores snapshots as JSONL, and serves a fast mobile-friendly dashboard.
 
-## 功能概览
+## What Changed In This Version
 
-- 后端定时拉取健身房人数数据（APScheduler）
-- 前端展示实时人数、按星期平均、按小时平均
-- 当前在馆成员列表与收藏
-- 数据以 JSONL 形式落盘（默认 `data/gym_data.jsonl`）
-- 支持 Windows / Linux 前台运行
-- 提供统一后台管理脚本：`scripts/run_daemon.py`
+- Replaced the heavy inline React/Babel dashboard with plain HTML, CSS, and vanilla JavaScript.
+- Added a single `/api/bootstrap` endpoint so the first page load only needs one data request.
+- Moved dashboard assets into dedicated static files:
+  - `static/css/dashboard.css`
+  - `static/js/dashboard.js`
+- Added cached parsing and cached summary generation for `gym_data.jsonl` to reduce repeated disk reads.
+- Reused a shared `requests.Session()` for upstream polling to reduce connection setup overhead.
+- Hardened the daemon script so stale Windows PID files do not cause false "already running" results.
 
-## 环境要求
+## Requirements
 
 - Python 3.10+
 
-## 快速开始（Windows / Linux 通用）
-
-### 1) 克隆代码
+## Install
 
 ```bash
-git clone https://github.com/<your-org>/CheckMyGym.git
-cd CheckMyGym
+python -m venv .venv
 ```
 
-### 2) 创建虚拟环境并安装依赖
-
-Linux/macOS:
+Linux / macOS:
 
 ```bash
-python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Windows (PowerShell):
+Windows PowerShell:
 
 ```powershell
-py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-### 3) 前台运行（最简单）
-
-Linux/macOS:
+## Run In Foreground
 
 ```bash
-python3 app.py
-```
-
-Windows:
-
-```powershell
 python app.py
 ```
 
-启动后访问：
+Default local URL:
 
 - `http://127.0.0.1:6767`
-- 或 `http://<你的机器IP>:6767`
-- ? `http://<????>:6767`??? `hylqs.dynv6.net:6767`?
 
-首次运行会自动生成 `config.json` 和数据目录。
+The first run creates `config.json` automatically.
 
-## 统一后台管理脚本（Windows / Linux）
+## Run In Background
 
-项目提供跨平台后台管理脚本：`scripts/run_daemon.py`
-
-### 首次启动（交互配置）
-
-```bash
-python scripts/run_daemon.py start
-```
-
-首次启动可指定端口（默认 `6767`）：
-
-```bash
-python scripts/run_daemon.py start --port 6767
-```
-
-?????????? `dual`?????? IPv4+IPv6??
-
-```bash
-python scripts/run_daemon.py start --host dual
-```
-
-脚本会提示你输入（回车使用当前值）：
-
-- `storage_dir`
-- `poll_interval_minutes`
-- `shop_id`
-- `api_base`
-- `open_hour_start`
-- `open_hour_end`
-- `host`?`dual` / `0.0.0.0` / `::` / `127.0.0.1`?
-
-### 按现有配置直接启动（跳过交互）
+Use the bundled daemon helper:
 
 ```bash
 python scripts/run_daemon.py start --use-defaults
 ```
 
-???????????
+Useful variants:
 
 ```bash
+python scripts/run_daemon.py start
 python scripts/run_daemon.py start --use-defaults --host dual
-```
-
-### 状态与停止
-
-```bash
-# 查看状态
 python scripts/run_daemon.py status
-
-# 停止后台进程
 python scripts/run_daemon.py stop
 ```
 
-### 运行产物
+## Configuration
 
-- PID 文件：`.checkmygym.pid`
-- 日志文件：`logs/checkmygym.log`
+`config.json` is created automatically. Main fields:
 
-## Windows 开机自启（任务计划）
+- `storage_dir`: data directory for JSONL snapshots
+- `poll_interval_minutes`: scheduler interval
+- `shop_id`: upstream gym identifier
+- `api_base`: upstream API base URL
+- `open_hour_start`: dashboard hour filter start
+- `open_hour_end`: dashboard hour filter end
+- `host`: `dual`, `0.0.0.0`, `::`, or `127.0.0.1`
+- `port`: HTTP listen port
+- `favorites`: tracked member ids
 
-项目提供 PowerShell 脚本注册“用户登录时启动”的任务计划：
+## API Endpoints
+
+- `GET /`: dashboard page
+- `GET /api/bootstrap`: config + dashboard data for first paint
+- `GET /api/config`: current config
+- `POST /api/config`: update mutable config values
+- `GET /api/data`: dashboard data only
+- `POST /api/poll`: trigger one background poll
+- `GET /api/favorites`: list favorite ids
+- `POST /api/favorites`: add or remove a favorite
+- `GET /api/health`: basic service status
+
+## Project Layout
+
+```text
+CheckMyGym/
+|-- app.py
+|-- gym_service.py
+|-- templates/
+|   `-- index.html
+|-- static/
+|   |-- css/
+|   |   `-- dashboard.css
+|   `-- js/
+|       `-- dashboard.js
+|-- scripts/
+|   |-- run_daemon.py
+|   |-- run_linux_daemon.py
+|   |-- setup_autorun.ps1
+|   `-- remove_autorun.ps1
+|-- data/
+|-- logs/
+|-- config.json
+`-- requirements.txt
+```
+
+## Data Format
+
+Snapshots are appended to:
+
+- `<storage_dir>/gym_data.jsonl`
+
+Each line is a JSON object, for example:
+
+```json
+{
+  "timestamp": "2026-03-01 08:30:00",
+  "people_num": 12,
+  "using_man": []
+}
+```
+
+## Windows Autorun
+
+Register a scheduled task at user logon:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_autorun.ps1 -PythonExe ".\.venv\Scripts\python.exe"
 ```
 
-默认会注册为启动：
-
-```text
-python scripts/run_daemon.py start --use-defaults
-```
-
-移除任务计划：
+Remove it:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\remove_autorun.ps1
 ```
 
-说明：
+## Linux Service
 
-- 请先至少运行一次 `scripts/run_daemon.py start` 完成配置。
-- `-PythonExe` 建议显式传入虚拟环境解释器，避免命中系统 `python` alias。
+For Linux, prefer running `app.py` directly under `systemd` instead of double-forking through the daemon helper.
 
-## Linux 开机自启（systemd，可选）
+Example service:
 
-`systemd` 应直接托管前台进程（`app.py`），不要再通过后台脚本二次 fork。
-
-创建服务文件：
-
-```bash
-sudo tee /etc/systemd/system/checkmygym.service >/dev/null <<'EOF'
+```ini
 [Unit]
-Description=CheckMyGym Service
+Description=CheckMyGym
 After=network.target
 
 [Service]
 Type=simple
-User=<你的Linux用户名>
 WorkingDirectory=/path/to/CheckMyGym
-Environment=FLASK_DEBUG=0
 ExecStart=/path/to/CheckMyGym/.venv/bin/python /path/to/CheckMyGym/app.py
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-EOF
 ```
 
-启用并启动：
+## Notes
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable checkmygym
-sudo systemctl start checkmygym
-```
-
-查看状态与日志：
-
-```bash
-sudo systemctl status checkmygym
-journalctl -u checkmygym -f
-```
-
-关闭开机自启：
-
-```bash
-sudo systemctl disable --now checkmygym
-```
-
-## 数据文件说明
-
-- 数据文件路径：`<storage_dir>/gym_data.jsonl`
-- 每行一条 JSON 记录，例如：
-
-```json
-{
-  "timestamp": "2025-11-07 20:45:49",
-  "people_num": 23,
-  "using_man": []
-}
-```
-
-## 兼容说明
-
-- 旧命令 `python scripts/run_linux_daemon.py ...` 仍可用（内部已转发到 `run_daemon.py`）。
+- `scripts/run_linux_daemon.py` is kept only as a compatibility wrapper.
+- `demo_code.py` is a legacy one-off fetch example and is not used by the dashboard.

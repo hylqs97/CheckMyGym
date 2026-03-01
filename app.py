@@ -1,79 +1,102 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
 from datetime import datetime
+from typing import Any
 
-from flask import Flask, jsonify, render_template, request, current_app, has_app_context, make_response
 from apscheduler.schedulers.background import BackgroundScheduler
+from flask import Flask, jsonify, make_response, render_template, request
 from werkzeug.serving import make_server
 
 from gym_service import ConfigManager, DataStore, fetch_gym_status
 
+LOGGER = logging.getLogger("checkmygym")
+if not LOGGER.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+APP_DATA_LIMIT = 2000
 scheduler: BackgroundScheduler | None = None
 store: DataStore | None = None
 config_mgr = ConfigManager()
+_runtime_lock = threading.Lock()
+_runtime_started = False
+
 
 
 def get_favorite_ids() -> set[str]:
     cfg = config_mgr.load()
-    favs = cfg.get("favorites") or []
-    return {str(f) for f in favs if str(f)}
+    return {str(value) for value in cfg.get("favorites", []) if str(value).strip()}
 
 
-def save_favorite_ids(favs: set[str]) -> None:
+
+def save_favorite_ids(favorites: set[str]) -> None:
     cfg = config_mgr.load().copy()
-    cfg["favorites"] = sorted(list({str(f) for f in favs if str(f)}))
+    cfg["favorites"] = sorted({str(value) for value in favorites if str(value).strip()})
     config_mgr.save(cfg)
 
 
-def is_within_hours(cfg: dict, now: datetime | None = None) -> bool:
+
+def is_within_hours(cfg: dict[str, Any], now: datetime | None = None) -> bool:
     now = now or datetime.now()
     start = int(cfg.get("open_hour_start", 6))
     end = int(cfg.get("open_hour_end", 23))
     hour = now.hour
     if start <= end:
         return start <= hour < end
-    # handle wrap-around (unlikely here but safe)
     return hour >= start or hour < end
+
+
+
+def _get_store() -> DataStore:
+    global store
+    if store is None:
+        cfg = config_mgr.load()
+        store = DataStore(str(cfg["storage_dir"]))
+    return store
+
+
+
+def build_dashboard_payload(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    cfg = cfg or config_mgr.load()
+    payload = _get_store().build_dashboard_payload(get_favorite_ids(), limit=APP_DATA_LIMIT, per_user_limit=5)
+    payload["open_hours"] = {
+        "start": int(cfg.get("open_hour_start", 6)),
+        "end": int(cfg.get("open_hour_end", 23)),
+    }
+    return payload
+
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
 
-    cfg = config_mgr.load()
-    global store
-    store = DataStore(cfg["storage_dir"])
-
     @app.route("/")
     def index():
-        resp = make_response(render_template("index.html"))
-        # Keep dashboard HTML fresh on mobile browsers that aggressively cache.
-        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        resp.headers["Pragma"] = "no-cache"
-        resp.headers["Expires"] = "0"
-        return resp
+        response = make_response(render_template("index.html"))
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+    @app.get("/api/bootstrap")
+    def api_bootstrap():
+        cfg = config_mgr.load()
+        return jsonify({"config": cfg, "data": build_dashboard_payload(cfg)})
 
     @app.get("/api/config")
-    def get_config():
+    def api_get_config():
         return jsonify(config_mgr.load())
 
     @app.post("/api/config")
-    def update_config():
+    def api_update_config():
         payload = request.get_json(force=True, silent=True) or {}
         cfg = config_mgr.load().copy()
         changed = False
-        mutable_keys = (
-            "storage_dir",
-            "poll_interval_minutes",
-            "shop_id",
-            "api_base",
-            "open_hour_start",
-            "open_hour_end",
-        )
-        for key in mutable_keys:
+
+        for key in ("storage_dir", "poll_interval_minutes", "shop_id", "api_base", "open_hour_start", "open_hour_end"):
             if key not in payload:
                 continue
             value = payload[key]
@@ -87,128 +110,142 @@ def create_app() -> Flask:
             if value != cfg.get(key):
                 cfg[key] = value
                 changed = True
-        # ensure start < end default behavior
+
         if cfg.get("open_hour_start", 6) == cfg.get("open_hour_end", 23):
-            cfg["open_hour_end"] = (cfg["open_hour_start"] + 1) % 24
+            adjusted_end = (int(cfg["open_hour_start"]) + 1) % 24
+            if adjusted_end != cfg.get("open_hour_end"):
+                cfg["open_hour_end"] = adjusted_end
+                changed = True
+
         if changed:
             config_mgr.save(cfg)
-            # Update datastore if storage changes
             global store
-            store = DataStore(cfg["storage_dir"])  # recreate
-            # reschedule job
-            restart_scheduler(cfg)
+            store = DataStore(str(cfg["storage_dir"]))
+            restart_scheduler()
+
         return jsonify({"ok": True, "config": cfg})
 
     @app.get("/api/data")
     def api_data():
-        entries = store.load_all(limit=2000) if store else []
         cfg = config_mgr.load()
-        favorites = get_favorite_ids()
-        summary = DataStore.summarize(entries)
-        summary["favorites"] = sorted(list(favorites))
-        summary["favorite_records"] = DataStore.summarize_favorite_records(entries, favorites, per_user_limit=5)
-        for person in summary.get("current_people", []):
-            pid = str(person.get("id") or "")
-            person["favorite"] = pid in favorites
-        summary["open_hours"] = {
-            "start": int(cfg.get("open_hour_start", 6)),
-            "end": int(cfg.get("open_hour_end", 23)),
-        }
-        return jsonify(summary)
+        return jsonify(build_dashboard_payload(cfg))
 
     @app.post("/api/poll")
     def api_poll():
-        # trigger one poll in a background thread to avoid blocking
-        threading.Thread(target=do_poll, daemon=True).start()
+        threading.Thread(target=do_poll, daemon=True, name="manual-poll").start()
         return jsonify({"ok": True})
 
     @app.get("/api/favorites")
     def api_get_favorites():
-        return jsonify({"favorites": sorted(list(get_favorite_ids()))})
+        return jsonify({"favorites": sorted(get_favorite_ids())})
 
     @app.post("/api/favorites")
     def api_update_favorite():
         payload = request.get_json(force=True, silent=True) or {}
-        user_id = payload.get("id")
+        user_id = str(payload.get("id") or "").strip()
         if not user_id:
             return jsonify({"ok": False, "error": "missing id"}), 400
-        favorite = bool(payload.get("favorite"))
+
         favorites = get_favorite_ids()
-        user_id = str(user_id)
-        if favorite:
+        if bool(payload.get("favorite")):
             favorites.add(user_id)
         else:
             favorites.discard(user_id)
         save_favorite_ids(favorites)
-        return jsonify({"ok": True, "favorites": sorted(list(favorites))})
+        return jsonify({"ok": True, "favorites": sorted(favorites)})
+
+    @app.get("/api/health")
+    def api_health():
+        cfg = config_mgr.load()
+        return jsonify(
+            {
+                "ok": True,
+                "scheduler_running": bool(scheduler and scheduler.running),
+                "port": int(cfg.get("port", 6767)),
+                "host": str(cfg.get("host", "dual")),
+            }
+        )
 
     return app
 
 
+
 def do_poll() -> None:
     cfg = config_mgr.load()
+    if not is_within_hours(cfg):
+        return
+
     try:
-        if not is_within_hours(cfg):
-            return
-        entry = fetch_gym_status(cfg["api_base"], int(cfg["shop_id"]))
-        if store:
-            store.append(entry)
-    except Exception as e:
-        # Log to console; in production, use proper logging
-        print(f"Poll error: {e}")
+        entry = fetch_gym_status(str(cfg["api_base"]), int(cfg["shop_id"]))
+        _get_store().append(entry)
+    except Exception:
+        LOGGER.exception("Polling failed")
 
 
-def start_scheduler(app: Flask) -> None:
+
+def start_scheduler() -> None:
     global scheduler
     if scheduler and scheduler.running:
         return
+
     cfg = config_mgr.load()
+    interval = max(1, int(cfg.get("poll_interval_minutes", 5)))
     scheduler = BackgroundScheduler(daemon=True)
-    scheduler.add_job(do_poll, "interval", minutes=int(cfg["poll_interval_minutes"]), id="poll_job", replace_existing=True)
+    scheduler.add_job(
+        do_poll,
+        "interval",
+        minutes=interval,
+        id="poll_job",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=30,
+    )
     scheduler.start()
-    # first immediate poll
-    with app.app_context():
-        threading.Thread(target=do_poll, daemon=True).start()
+    threading.Thread(target=do_poll, daemon=True, name="initial-poll").start()
 
 
-def restart_scheduler(cfg: dict) -> None:
+
+def restart_scheduler() -> None:
     global scheduler
     if scheduler:
         try:
-            scheduler.remove_all_jobs()
             scheduler.shutdown(wait=False)
         except Exception:
-            pass
+            LOGGER.exception("Failed to stop scheduler cleanly")
         scheduler = None
-    # Start again with new interval
-    app = current_app if has_app_context() else None
-    if app is not None:
-        start_scheduler(app)
+    start_scheduler()
 
 
-def ensure_templates():
-    # Make sure templates path exists when running from this repo structure
-    templates_path = os.path.join(os.path.dirname(__file__), "templates")
-    if not os.path.isdir(templates_path):
-        os.makedirs(templates_path, exist_ok=True)
+
+def ensure_runtime_started() -> None:
+    global _runtime_started
+    if _runtime_started:
+        return
+
+    with _runtime_lock:
+        if _runtime_started:
+            return
+        _get_store()
+        start_scheduler()
+        _runtime_started = True
+
 
 
 def _normalize_host(value: str | None) -> str:
     host = (value or "").strip()
     if not host:
         return "dual"
-    host_lower = host.lower()
-    if host_lower in {"dual", "both"}:
+    if host.lower() in {"dual", "both"}:
         return "dual"
     return host
 
 
+
 def _run_dual_stack(app: Flask, port: int) -> None:
-    # Try IPv6 first so dynv6/AAAA users work out of the box. Some OSes expose IPv4
-    # via the IPv6 socket; in that case the IPv4 bind will fail and we simply keep the
-    # IPv6 listener.
-    servers: list[tuple[str, object]] = []
+    servers: list[tuple[str, Any]] = []
     bind_errors: list[str] = []
+
     for bind_host in ("::", "0.0.0.0"):
         try:
             server = make_server(bind_host, port, app, threaded=True)
@@ -217,15 +254,18 @@ def _run_dual_stack(app: Flask, port: int) -> None:
             bind_errors.append(f"{bind_host}:{port} -> {exc}")
 
     if not servers:
-        detail = "; ".join(bind_errors) if bind_errors else "unknown bind error"
-        raise RuntimeError(f"Failed to bind any listener on port {port}: {detail}")
+        details = "; ".join(bind_errors) if bind_errors else "unknown bind error"
+        raise RuntimeError(f"Failed to bind any listener on port {port}: {details}")
 
     for bind_host, server in servers:
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        print(f"CheckMyGym listening on http://[{bind_host}]:{port}" if ":" in bind_host else f"CheckMyGym listening on http://{bind_host}:{port}")
+        threading.Thread(target=server.serve_forever, daemon=True, name=f"http-{bind_host}-{port}").start()
+        if ":" in bind_host:
+            LOGGER.info("Listening on http://[%s]:%s", bind_host, port)
+        else:
+            LOGGER.info("Listening on http://%s:%s", bind_host, port)
 
     if bind_errors:
-        print("Bind warnings:", " | ".join(bind_errors))
+        LOGGER.warning("Bind warnings: %s", " | ".join(bind_errors))
 
     try:
         while True:
@@ -237,26 +277,26 @@ def _run_dual_stack(app: Flask, port: int) -> None:
             try:
                 server.shutdown()
             except Exception:
-                pass
+                LOGGER.exception("Failed to shut down listener cleanly")
+
 
 
 def run_http_server(app: Flask, host: str, port: int, debug_mode: bool) -> None:
     if host == "dual":
         if debug_mode:
-            print("FLASK_DEBUG=1 with dual mode uses production-style multi-listener without reloader.")
+            LOGGER.info("FLASK_DEBUG=1 with dual mode disables the Flask reloader.")
         _run_dual_stack(app, port)
         return
     app.run(host=host, port=port, debug=debug_mode)
 
 
 app = create_app()
-start_scheduler(app)
+ensure_runtime_started()
 
 
 if __name__ == "__main__":
-    ensure_templates()
-    debug_mode = os.getenv("FLASK_DEBUG", "0") == "1"
     cfg = config_mgr.load()
     host = _normalize_host(os.getenv("CHECKMYGYM_HOST") or str(cfg.get("host", "dual")))
     port = int(os.getenv("CHECKMYGYM_PORT") or cfg.get("port", 6767))
+    debug_mode = os.getenv("FLASK_DEBUG", "0") == "1"
     run_http_server(app, host=host, port=port, debug_mode=debug_mode)
