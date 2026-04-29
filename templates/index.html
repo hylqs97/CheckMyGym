@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -102,123 +102,123 @@
           <section class="panel">
             <div class="panel-head panel-head-wrap">
               <div>
-                <h2>Configuration</h2>
-                <p class="muted">Saved changes apply immediately to the scheduler and QQ notifier.</p>
+                <h2>配置</h2>
+                <p class="muted">保存后会立即作用到轮询器和 QQ 通知。</p>
               </div>
-              <button id="poll-now" class="button secondary" type="button">Poll Now</button>
+              <button id="poll-now" class="button secondary" type="button">立即轮询</button>
             </div>
             <form id="config-form" class="form-grid">
               <label>
-                <span>Storage Directory</span>
+                <span>数据目录</span>
                 <input id="storage_dir" name="storage_dir" type="text" />
               </label>
               <label>
-                <span>Polling Interval (min)</span>
+                <span>轮询间隔（分钟）</span>
                 <input id="poll_interval_minutes" name="poll_interval_minutes" type="number" min="1" />
               </label>
               <label>
-                <span>Shop ID</span>
+                <span>场馆 ID</span>
                 <input id="shop_id" name="shop_id" type="number" min="1" />
               </label>
               <label>
-                <span>API Base URL</span>
+                <span>API 根地址</span>
                 <input id="api_base" name="api_base" type="text" />
               </label>
               <label>
-                <span>Open Hour Start</span>
+                <span>营业开始小时</span>
                 <input id="open_hour_start" name="open_hour_start" type="number" min="0" max="23" />
               </label>
               <label>
-                <span>Open Hour End</span>
+                <span>营业结束小时</span>
                 <input id="open_hour_end" name="open_hour_end" type="number" min="0" max="23" />
               </label>
 
               <section class="form-section form-span-2">
                 <div class="section-head">
                   <div>
-                    <h3>QQ Notifications</h3>
-                    <p class="muted">Uses OneBot-compatible HTTP endpoints such as NapCat or go-cqhttp.</p>
+                    <h3>QQ 通知</h3>
+                    <p class="muted">支持 NapCat、go-cqhttp 等兼容 OneBot 的 HTTP 接口。</p>
                   </div>
                   <label class="checkbox-row">
                     <input id="qq_enabled" type="checkbox" />
-                    <span>Enable QQ Push</span>
+                    <span>启用 QQ 推送</span>
                   </label>
                 </div>
                 <div class="subform-grid">
                   <label>
-                    <span>QQ Endpoint</span>
+                    <span>QQ 接口地址</span>
                     <input id="qq_endpoint" type="text" placeholder="http://127.0.0.1:3000" />
                   </label>
                   <label>
-                    <span>Access Token</span>
-                    <input id="qq_access_token" type="text" placeholder="Optional" />
+                    <span>访问令牌</span>
+                    <input id="qq_access_token" type="text" placeholder="可选" />
                   </label>
                   <label>
-                    <span>Target Type</span>
+                    <span>发送目标类型</span>
                     <select id="qq_target_type">
-                      <option value="private">Private Chat</option>
-                      <option value="group">Group Chat</option>
+                      <option value="private">私聊</option>
+                      <option value="group">群聊</option>
                     </select>
                   </label>
                   <label>
-                    <span>Target ID</span>
-                    <input id="qq_target_id" type="text" placeholder="QQ number or group id" />
+                    <span>发送目标 ID</span>
+                    <input id="qq_target_id" type="text" placeholder="QQ 号或群号" />
                   </label>
                   <label>
-                    <span>HTTP Timeout (sec)</span>
+                    <span>HTTP 超时（秒）</span>
                     <input id="qq_timeout_seconds" type="number" min="3" max="60" />
                   </label>
                   <label>
-                    <span>Cooldown (min)</span>
+                    <span>冷却时间（分钟）</span>
                     <input id="qq_cooldown_minutes" type="number" min="0" max="1440" />
                   </label>
                   <label class="checkbox-field">
-                    <span>Low-Traffic Alert</span>
+                    <span>低人数提醒</span>
                     <input id="low_traffic_enabled" type="checkbox" />
                   </label>
                   <label>
-                    <span>Low-Traffic Threshold</span>
+                    <span>低人数阈值</span>
                     <input id="low_traffic_threshold" type="number" min="0" />
                   </label>
                   <label>
-                    <span>Low-Traffic Start</span>
+                    <span>低人数时段开始</span>
                     <input id="low_traffic_start_time" type="time" />
                   </label>
                   <label>
-                    <span>Low-Traffic End</span>
+                    <span>低人数时段结束</span>
                     <input id="low_traffic_end_time" type="time" />
                   </label>
                   <label class="form-span-2">
-                    <span>Low-Traffic Message Template</span>
+                    <span>低人数消息模板</span>
                     <textarea id="low_traffic_message_template" rows="3"></textarea>
                   </label>
                 </div>
                 <p class="form-help">
-                  Available placeholders: <code>{current_count}</code>, <code>{threshold}</code>,
+                  可用占位符：<code>{current_count}</code>、<code>{threshold}</code>、
                   <code>{timestamp}</code>, <code>{window_start}</code>, <code>{window_end}</code>
                 </p>
-                <p class="form-help">The same low-traffic window and threshold can also be reused by arrival rules with an AND condition. The checkbox above only controls standalone low-traffic notifications.</p>
+                <p class="form-help">同一套低人数时段和阈值也可以被到场规则复用为“且”条件。上面的勾选项只控制独立的低人数通知。</p>
               </section>
 
               <section class="form-section form-span-2">
                 <div class="section-head">
                   <div>
-                    <h3>User Arrival Alerts</h3>
-                    <p class="muted">Send a custom QQ message when a watched user appears in the latest snapshot.</p>
+                    <h3>用户到场提醒</h3>
+                    <p class="muted">当指定用户出现在最新快照里时，发送自定义 QQ 消息。</p>
                   </div>
-                  <button id="add-arrival-rule" class="button secondary small-button" type="button">Add Rule</button>
+                  <button id="add-arrival-rule" class="button secondary small-button" type="button">新增规则</button>
                 </div>
-                <div id="arrival-rules-list" class="arrival-rule-list empty-state">No arrival rules yet.</div>
+                <div id="arrival-rules-list" class="arrival-rule-list empty-state">还没有到场规则。</div>
                 <p class="form-help">
-                  Available placeholders: <code>{user_name}</code>, <code>{user_id}</code>, <code>{label}</code>,
+                  可用占位符：<code>{user_name}</code>、<code>{user_id}</code>、<code>{label}</code>、
                   <code>{minutes}</code>, <code>{current_count}</code>, <code>{timestamp}</code>,
                   <code>{threshold}</code>, <code>{window_start}</code>, <code>{window_end}</code>
                 </p>
-                <p class="form-help">Enable “Require Low-Traffic Condition” to express: watched user arrives AND low-traffic rule is currently satisfied.</p>
+                <p class="form-help">勾选“要求同时满足低人数条件”后，就表示：该用户到场 且 当前满足低人数规则。</p>
               </section>
 
               <div class="form-actions form-span-2">
-                <button id="save-config" class="button" type="submit">Save Config</button>
+                <button id="save-config" class="button" type="submit">保存配置</button>
               </div>
             </form>
           </section>

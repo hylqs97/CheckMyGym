@@ -15,7 +15,7 @@
   async function init() {
     bindElements();
     bindEvents();
-    setFeedback("Loading dashboard...");
+    setFeedback("正在加载页面...");
 
     try {
       await bootstrap();
@@ -84,16 +84,16 @@
 
     elements["poll-now"].addEventListener("click", async () => {
       try {
-        setButtonBusy(elements["poll-now"], true, "Polling...");
+        setButtonBusy(elements["poll-now"], true, "轮询中...");
         await fetchJson("/api/poll", { method: "POST" });
         await delay(900);
         await refreshData(false);
-        setFeedback("Polling completed.");
+        setFeedback("轮询完成。");
       } catch (error) {
         console.error(error);
         setFeedback(getErrorMessage(error), true);
       } finally {
-        setButtonBusy(elements["poll-now"], false, "Poll Now");
+        setButtonBusy(elements["poll-now"], false, "立即轮询");
       }
     });
 
@@ -134,7 +134,7 @@
     state.data = payload.data || {};
     fillConfigForm();
     render();
-    setFeedback("Dashboard ready.");
+      setFeedback("页面已就绪。");
   }
 
   async function refreshData(showFeedback) {
@@ -142,7 +142,7 @@
     state.data = data || {};
     render();
     if (showFeedback) {
-      setFeedback("Dashboard refreshed.");
+      setFeedback("数据已刷新。");
     }
   }
 
@@ -174,7 +174,7 @@
     };
 
     try {
-      setButtonBusy(elements["save-config"], true, "Saving...");
+      setButtonBusy(elements["save-config"], true, "保存中...");
       const response = await fetchJson("/api/config", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -183,12 +183,12 @@
       state.formDirty = false;
       fillConfigForm();
       await refreshData(false);
-      setFeedback("Configuration saved.");
+      setFeedback("配置已保存。");
     } catch (error) {
       console.error(error);
       setFeedback(getErrorMessage(error), true);
     } finally {
-      setButtonBusy(elements["save-config"], false, "Save Config");
+      setButtonBusy(elements["save-config"], false, "保存配置");
     }
   }
 
@@ -229,7 +229,7 @@
   function renderStats() {
     const data = state.data || {};
     const favorites = Array.isArray(data.favorites) ? data.favorites : [];
-    const lastTimestamp = data.last_timestamp || "No samples yet";
+    const lastTimestamp = data.last_timestamp || "暂无采样";
 
     elements["current-count"].textContent = String(toNumber(data.current_count, 0));
     elements["favorite-count"].textContent = String(favorites.length);
@@ -238,7 +238,7 @@
 
     const openHours = data.open_hours || {};
     elements["open-hours-label"].textContent =
-      "Open hours: " + padHour(openHours.start, 6) + ":00 - " + padHour(openHours.end, 23) + ":00";
+      "营业时间：" + padHour(openHours.start, 6) + ":00 - " + padHour(openHours.end, 23) + ":00";
   }
 
   function renderCurrentPeople() {
@@ -248,7 +248,7 @@
     list.innerHTML = "";
 
     if (!people.length) {
-      list.textContent = "No one is currently in the gym.";
+      list.textContent = "当前健身房无人。";
       list.classList.add("empty-state");
       return;
     }
@@ -265,12 +265,12 @@
 
       const name = document.createElement("div");
       name.className = "person-name";
-      name.textContent = person.name || "Unknown";
+      name.textContent = person.name || "未知用户";
       meta.appendChild(name);
 
       const detail = document.createElement("div");
       detail.className = "person-detail";
-      detail.textContent = "Stay: " + String(toNumber(person.minutes, 0)) + " min";
+      detail.textContent = "已锻炼：" + String(toNumber(person.minutes, 0)) + " 分钟";
       meta.appendChild(detail);
 
       card.appendChild(meta);
@@ -289,7 +289,7 @@
     list.innerHTML = "";
 
     if (!records.length) {
-      list.textContent = "No favorite history yet.";
+      list.textContent = "暂无收藏用户记录。";
       list.classList.add("empty-state");
       return;
     }
@@ -309,15 +309,20 @@
       name.textContent = item.name || ("ID " + String(item.id || ""));
       meta.appendChild(name);
 
+      const userId = document.createElement("div");
+      userId.className = "favorite-detail";
+      userId.textContent = "用户 ID：" + String(item.id || "--");
+      meta.appendChild(userId);
+
       const status = document.createElement("span");
       status.className = item.is_current ? "badge" : "badge dim";
-      status.textContent = item.is_current ? "In gym now" : "Last seen: " + (item.last_seen || "unknown");
+      status.textContent = item.is_current ? "当前在馆" : "最近出现：" + (item.last_seen || "未知");
       meta.appendChild(status);
 
       const detail = document.createElement("div");
       detail.className = "favorite-detail";
       detail.textContent =
-        "Last stay: " + String(toNumber(item.last_minutes, 0)) + " min | Sessions: " + String(toNumber(item.record_count, 0));
+        "最近锻炼：" + String(toNumber(item.last_minutes, 0)) + " 分钟 | 记录次数：" + String(toNumber(item.record_count, 0));
       meta.appendChild(detail);
 
       const sessions = document.createElement("div");
@@ -325,7 +330,7 @@
       const recent = Array.isArray(item.recent_records) ? item.recent_records : [];
       if (!recent.length) {
         const line = document.createElement("span");
-        line.textContent = "No stored sessions yet.";
+        line.textContent = "暂无历史时段记录。";
         sessions.appendChild(line);
       } else {
         recent.slice(0, 3).forEach((record) => {
@@ -375,7 +380,7 @@
   function renderBarList(target, rows) {
     target.innerHTML = "";
     if (!rows.length) {
-      target.textContent = "No chart data available yet.";
+      target.textContent = "暂无图表数据。";
       target.classList.add("empty-state");
       return;
     }
@@ -446,7 +451,7 @@
     list.innerHTML = "";
 
     if (!rules.length) {
-      list.textContent = "No arrival rules yet.";
+      list.textContent = "还没有到场规则。";
       list.classList.add("empty-state");
       list.dataset.empty = "1";
       return;
@@ -476,14 +481,14 @@
     enabledInput.dataset.field = "enabled";
     enabled.appendChild(enabledInput);
     const enabledLabel = document.createElement("span");
-    enabledLabel.textContent = "Enabled";
+    enabledLabel.textContent = "启用";
     enabled.appendChild(enabledLabel);
     top.appendChild(enabled);
 
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "button secondary small-button";
-    removeButton.textContent = "Remove";
+    removeButton.textContent = "删除";
     removeButton.addEventListener("click", () => {
       wrapper.remove();
       if (!elements["arrival-rules-list"].querySelector("[data-arrival-rule]")) {
@@ -497,18 +502,18 @@
     const grid = document.createElement("div");
     grid.className = "rule-grid";
 
-    grid.appendChild(createRuleField("User ID", "user_id", data.user_id || "", false));
-    grid.appendChild(createRuleField("Label (optional)", "label", data.label || "", false));
+    grid.appendChild(createRuleField("用户 ID", "user_id", data.user_id || "", false));
+    grid.appendChild(createRuleField("备注标签（可选）", "label", data.label || "", false));
     grid.appendChild(
       createRuleCheckboxField(
-        "Require Low-Traffic Condition (AND)",
+        "要求同时满足低人数条件（且）",
         "require_low_traffic",
         Boolean(data.require_low_traffic)
       )
     );
     grid.appendChild(
       createRuleField(
-        "Message Template",
+        "消息模板",
         "message_template",
         data.message_template || "",
         true
@@ -589,7 +594,7 @@
     button.type = "button";
     button.className = "star-button" + (active ? "" : " off");
     button.textContent = active ? "★" : "☆";
-    button.setAttribute("aria-label", active ? "Remove favorite" : "Add favorite");
+    button.setAttribute("aria-label", active ? "取消收藏" : "加入收藏");
     button.addEventListener("click", onClick);
     return button;
   }
@@ -607,7 +612,7 @@
     const end = record && record.end ? record.end : "--";
     const maxMinutes = toNumber(record && record.max_minutes, 0);
     const isCurrent = Boolean(record && record.current);
-    return (isCurrent ? "Live" : "Session") + ": " + start + " -> " + end + " | peak " + String(maxMinutes) + " min";
+    return (isCurrent ? "当前时段" : "历史时段") + "：" + start + " -> " + end + " | 峰值 " + String(maxMinutes) + " 分钟";
   }
 
   function setButtonBusy(button, busy, label) {
@@ -624,7 +629,7 @@
     if (error && error.message) {
       return error.message;
     }
-    return "Request failed.";
+    return "请求失败。";
   }
 
   async function fetchJson(url, options) {
