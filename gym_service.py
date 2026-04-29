@@ -150,23 +150,25 @@ class ConfigManager:
         for raw_rule in normalized.get("user_arrival_rules") or []:
             if not isinstance(raw_rule, dict):
                 continue
-            user_id = str(raw_rule.get("user_id") or "").strip()
-            if not user_id:
+            user_ids = _normalize_user_id_list(raw_rule.get("user_ids") or raw_rule.get("user_id"))
+            if not user_ids:
                 continue
+            user_id_text = ", ".join(user_ids)
             rules.append(
                 {
-                    "user_id": user_id,
+                    "user_id": user_id_text,
+                    "user_ids": user_ids,
                     "label": str(raw_rule.get("label") or "").strip(),
                     "enabled": bool(raw_rule.get("enabled", True)),
                     "require_low_traffic": bool(raw_rule.get("require_low_traffic", False)),
                     "message_template": str(raw_rule.get("message_template") or "").strip()
-                    or f"{user_id} 来健身房了，当前人数 {{current_count}}。时间：{{timestamp}}",
+                    or "用户 {user_id} 来健身房了，当前人数 {current_count}。时间：{timestamp}",
                 }
             )
             rules[-1]["message_template"] = cls._repair_message_template(
                 rules[-1]["message_template"],
                 "arrival",
-                user_id=user_id,
+                user_id=user_id_text,
             )
         normalized["user_arrival_rules"] = rules
         return normalized
@@ -175,7 +177,7 @@ class ConfigManager:
     def _repair_message_template(template: str, template_kind: str, user_id: str = "") -> str:
         cleaned = str(template or "").strip()
         low_traffic_default = "健身房当前人数 {current_count}，已低于阈值 {threshold}。时间：{timestamp}"
-        arrival_default = f"{user_id} 来健身房了，当前人数 {{current_count}}。时间：{{timestamp}}"
+        arrival_default = "用户 {user_id} 来健身房了，当前人数 {current_count}。时间：{timestamp}"
 
         broken_markers = ("????", "???", "鍋ヨ韩", "鏉ュ仴", "褰撳墠", "鏃堕棿", "锛", "銆")
         if not cleaned or any(marker in cleaned for marker in broken_markers):
@@ -554,38 +556,42 @@ class QQNotificationManager:
         for rule in qq_cfg.get("user_arrival_rules") or []:
             if not rule.get("enabled"):
                 continue
-            user_id = str(rule.get("user_id") or "")
-            if not user_id or user_id in previous_people or user_id not in current_people:
-                continue
+            candidate_ids = _normalize_user_id_list(rule.get("user_ids") or rule.get("user_id"))
             if bool(rule.get("require_low_traffic")) and not current_low_traffic:
                 continue
 
-            person = current_people[user_id]
-            display_name = str(person.get("nickname") or person.get("name") or rule.get("label") or f"ID {user_id}")
-            event_values = {
-                "user_id": user_id,
-                "user_name": display_name,
-                "label": str(rule.get("label") or ""),
-                "minutes": _to_int(person.get("minutes"), 0),
-                "current_count": current_count,
-                "timestamp": timestamp,
-                "threshold": threshold,
-                "window_start": low_traffic_context["window_start"],
-                "window_end": low_traffic_context["window_end"],
-            }
-            events.append(
-                {
-                    "key": (
-                        f"user_arrival:{user_id}:"
-                        f"lt-{1 if bool(rule.get('require_low_traffic')) else 0}:"
-                        f"{low_traffic_context['window_start']}:{low_traffic_context['window_end']}:{threshold}"
-                    ),
-                    "message": self._render_message(
-                        str(rule.get("message_template") or ""),
-                        event_values,
-                    ),
+            for user_id in candidate_ids:
+                if user_id in previous_people or user_id not in current_people:
+                    continue
+
+                person = current_people[user_id]
+                display_name = str(person.get("nickname") or person.get("name") or rule.get("label") or f"ID {user_id}")
+                event_values = {
+                    "user_id": user_id,
+                    "user_name": display_name,
+                    "label": str(rule.get("label") or ""),
+                    "minutes": _to_int(person.get("minutes"), 0),
+                    "current_count": current_count,
+                    "timestamp": timestamp,
+                    "threshold": threshold,
+                    "window_start": low_traffic_context["window_start"],
+                    "window_end": low_traffic_context["window_end"],
                 }
-            )
+                events.append(
+                    {
+                        "key": (
+                            f"user_arrival:{user_id}:"
+                            f"rule-{','.join(candidate_ids)}:"
+                            f"label-{str(rule.get('label') or '')}:"
+                            f"lt-{1 if bool(rule.get('require_low_traffic')) else 0}:"
+                            f"{low_traffic_context['window_start']}:{low_traffic_context['window_end']}:{threshold}"
+                        ),
+                        "message": self._render_message(
+                            str(rule.get("message_template") or ""),
+                            event_values,
+                        ),
+                    }
+                )
 
         return events
 
@@ -746,6 +752,22 @@ def _entry_timestamp(entry: dict[str, Any] | None) -> datetime | None:
     if not entry:
         return None
     return _parse_timestamp(entry.get("timestamp"))
+
+
+def _normalize_user_id_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        source = [str(item or "").strip() for item in value]
+    else:
+        source = str(value or "").split(",")
+    items = [item.strip() for item in source if item and item.strip()]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
 
 
 def _coerce_target_id(value: Any) -> int | str:

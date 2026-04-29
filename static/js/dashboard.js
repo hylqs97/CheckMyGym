@@ -502,7 +502,7 @@
     const grid = document.createElement("div");
     grid.className = "rule-grid";
 
-    grid.appendChild(createRuleField("用户 ID", "user_id", data.user_id || "", false));
+    grid.appendChild(createRuleField("用户 ID（可用逗号分隔多个）", "user_id", data.user_id || "", false));
     grid.appendChild(createRuleField("备注标签（可选）", "label", data.label || "", false));
     grid.appendChild(
       createRuleCheckboxField(
