@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -15,11 +15,10 @@
           <p class="eyebrow">Fast dashboard</p>
           <h1>CheckMyGym</h1>
           <p class="hero-copy">
-            Lightweight occupancy tracking with faster startup, smaller payloads, and a mobile-first dashboard.
+            Lightweight occupancy tracking with server-side QQ notifications for low traffic and watched member arrivals.
           </p>
         </div>
         <div class="hero-actions">
-          <button id="notify-toggle" class="button secondary" type="button">Enable Low-Traffic Alerts</button>
           <button id="refresh-now" class="button" type="button">Refresh Data</button>
         </div>
       </header>
@@ -104,7 +103,7 @@
             <div class="panel-head panel-head-wrap">
               <div>
                 <h2>Configuration</h2>
-                <p class="muted">Saved changes apply immediately to the scheduler.</p>
+                <p class="muted">Saved changes apply immediately to the scheduler and QQ notifier.</p>
               </div>
               <button id="poll-now" class="button secondary" type="button">Poll Now</button>
             </div>
@@ -133,7 +132,92 @@
                 <span>Open Hour End</span>
                 <input id="open_hour_end" name="open_hour_end" type="number" min="0" max="23" />
               </label>
-              <div class="form-actions">
+
+              <section class="form-section form-span-2">
+                <div class="section-head">
+                  <div>
+                    <h3>QQ Notifications</h3>
+                    <p class="muted">Uses OneBot-compatible HTTP endpoints such as NapCat or go-cqhttp.</p>
+                  </div>
+                  <label class="checkbox-row">
+                    <input id="qq_enabled" type="checkbox" />
+                    <span>Enable QQ Push</span>
+                  </label>
+                </div>
+                <div class="subform-grid">
+                  <label>
+                    <span>QQ Endpoint</span>
+                    <input id="qq_endpoint" type="text" placeholder="http://127.0.0.1:3000" />
+                  </label>
+                  <label>
+                    <span>Access Token</span>
+                    <input id="qq_access_token" type="text" placeholder="Optional" />
+                  </label>
+                  <label>
+                    <span>Target Type</span>
+                    <select id="qq_target_type">
+                      <option value="private">Private Chat</option>
+                      <option value="group">Group Chat</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Target ID</span>
+                    <input id="qq_target_id" type="text" placeholder="QQ number or group id" />
+                  </label>
+                  <label>
+                    <span>HTTP Timeout (sec)</span>
+                    <input id="qq_timeout_seconds" type="number" min="3" max="60" />
+                  </label>
+                  <label>
+                    <span>Cooldown (min)</span>
+                    <input id="qq_cooldown_minutes" type="number" min="0" max="1440" />
+                  </label>
+                  <label class="checkbox-field">
+                    <span>Low-Traffic Alert</span>
+                    <input id="low_traffic_enabled" type="checkbox" />
+                  </label>
+                  <label>
+                    <span>Low-Traffic Threshold</span>
+                    <input id="low_traffic_threshold" type="number" min="0" />
+                  </label>
+                  <label>
+                    <span>Low-Traffic Start</span>
+                    <input id="low_traffic_start_time" type="time" />
+                  </label>
+                  <label>
+                    <span>Low-Traffic End</span>
+                    <input id="low_traffic_end_time" type="time" />
+                  </label>
+                  <label class="form-span-2">
+                    <span>Low-Traffic Message Template</span>
+                    <textarea id="low_traffic_message_template" rows="3"></textarea>
+                  </label>
+                </div>
+                <p class="form-help">
+                  Available placeholders: <code>{current_count}</code>, <code>{threshold}</code>,
+                  <code>{timestamp}</code>, <code>{window_start}</code>, <code>{window_end}</code>
+                </p>
+                <p class="form-help">The same low-traffic window and threshold can also be reused by arrival rules with an AND condition. The checkbox above only controls standalone low-traffic notifications.</p>
+              </section>
+
+              <section class="form-section form-span-2">
+                <div class="section-head">
+                  <div>
+                    <h3>User Arrival Alerts</h3>
+                    <p class="muted">Send a custom QQ message when a watched user appears in the latest snapshot.</p>
+                  </div>
+                  <button id="add-arrival-rule" class="button secondary small-button" type="button">Add Rule</button>
+                </div>
+                <div id="arrival-rules-list" class="arrival-rule-list empty-state">No arrival rules yet.</div>
+                <p class="form-help">
+                  Available placeholders: <code>{user_name}</code>, <code>{user_id}</code>, <code>{label}</code>,
+                  <code>{minutes}</code>, <code>{current_count}</code>, <code>{timestamp}</code>,
+                  <code>{threshold}</code>, <code>{window_start}</code>, <code>{window_end}</code>
+                </p>
+                <p class="form-help">Enable “Require Low-Traffic Condition” to express: watched user arrives AND low-traffic rule is currently satisfied.</p>
+              </section>
+
+              <div class="form-actions form-span-2">
                 <button id="save-config" class="button" type="submit">Save Config</button>
               </div>
             </form>

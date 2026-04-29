@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+from copy import deepcopy
 import json
 import os
 import threading
@@ -18,6 +19,23 @@ DEFAULT_CONFIG = {
     "host": "dual",
     "port": 6767,
     "favorites": [],
+    "qq_notification": {
+        "enabled": False,
+        "endpoint": "",
+        "access_token": "",
+        "target_type": "private",
+        "target_id": "",
+        "timeout_seconds": 10,
+        "cooldown_minutes": 15,
+        "low_traffic": {
+            "enabled": False,
+            "threshold": 4,
+            "start_time": "00:00",
+            "end_time": "00:00",
+            "message_template": "健身房当前人数 {current_count}，已低于阈值 {threshold}。时间：{timestamp}",
+        },
+        "user_arrival_rules": [],
+    },
 }
 
 _API_HEADERS = {
@@ -49,25 +67,25 @@ class ConfigManager:
                 return self._config
 
             if not os.path.exists(self.path):
-                self._config = DEFAULT_CONFIG.copy()
+                self._config = deepcopy(DEFAULT_CONFIG)
                 self.save(self._config)
                 return self._config
 
             with open(self.path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
 
-            merged = DEFAULT_CONFIG.copy()
+            merged = deepcopy(DEFAULT_CONFIG)
             merged.update(data or {})
-            merged["favorites"] = self._normalize_favorites(merged.get("favorites"))
+            self._normalize_config(merged)
             self._ensure_storage_dir(merged)
             self._config = merged
             return self._config
 
     def save(self, cfg: dict[str, Any]) -> None:
         with self._lock:
-            normalized = DEFAULT_CONFIG.copy()
+            normalized = deepcopy(DEFAULT_CONFIG)
             normalized.update(cfg or {})
-            normalized["favorites"] = self._normalize_favorites(normalized.get("favorites"))
+            self._normalize_config(normalized)
             self._ensure_storage_dir(normalized)
 
             config_dir = os.path.dirname(os.path.abspath(self.path))
@@ -80,11 +98,104 @@ class ConfigManager:
             os.replace(temp_path, self.path)
             self._config = normalized
 
+    @classmethod
+    def _normalize_config(cls, cfg: dict[str, Any]) -> None:
+        cfg["favorites"] = cls._normalize_favorites(cfg.get("favorites"))
+        cfg["qq_notification"] = cls._normalize_qq_notification(cfg.get("qq_notification"))
+
     @staticmethod
     def _normalize_favorites(values: Any) -> list[str]:
         if not values:
             return []
         return sorted({str(value) for value in values if str(value).strip()})
+
+    @classmethod
+    def _normalize_qq_notification(cls, values: Any) -> dict[str, Any]:
+        normalized = deepcopy(DEFAULT_CONFIG["qq_notification"])
+        if isinstance(values, dict):
+            normalized.update(values)
+
+        low_traffic = deepcopy(DEFAULT_CONFIG["qq_notification"]["low_traffic"])
+        if isinstance(normalized.get("low_traffic"), dict):
+            low_traffic.update(normalized["low_traffic"])
+
+        normalized["enabled"] = bool(normalized.get("enabled"))
+        normalized["endpoint"] = str(normalized.get("endpoint") or "").strip()
+        normalized["access_token"] = str(normalized.get("access_token") or "").strip()
+        normalized["target_type"] = cls._normalize_target_type(normalized.get("target_type"))
+        normalized["target_id"] = str(normalized.get("target_id") or "").strip()
+        normalized["timeout_seconds"] = cls._clamp_int(normalized.get("timeout_seconds"), 10, 3, 60)
+        normalized["cooldown_minutes"] = cls._clamp_int(normalized.get("cooldown_minutes"), 15, 0, 24 * 60)
+
+        low_traffic["enabled"] = bool(low_traffic.get("enabled"))
+        low_traffic["threshold"] = max(0, cls._clamp_int(low_traffic.get("threshold"), 4, 0, 9999))
+        low_traffic["start_time"] = _normalize_time_text(
+            low_traffic.get("start_time"),
+            fallback="00:00",
+            legacy_hour=low_traffic.get("start_hour"),
+        )
+        low_traffic["end_time"] = _normalize_time_text(
+            low_traffic.get("end_time"),
+            fallback="00:00",
+            legacy_hour=low_traffic.get("end_hour"),
+        )
+        low_traffic["message_template"] = (
+            str(low_traffic.get("message_template") or "").strip()
+            or DEFAULT_CONFIG["qq_notification"]["low_traffic"]["message_template"]
+        )
+        low_traffic["message_template"] = cls._repair_message_template(low_traffic["message_template"], "low_traffic")
+        normalized["low_traffic"] = low_traffic
+
+        rules: list[dict[str, Any]] = []
+        for raw_rule in normalized.get("user_arrival_rules") or []:
+            if not isinstance(raw_rule, dict):
+                continue
+            user_id = str(raw_rule.get("user_id") or "").strip()
+            if not user_id:
+                continue
+            rules.append(
+                {
+                    "user_id": user_id,
+                    "label": str(raw_rule.get("label") or "").strip(),
+                    "enabled": bool(raw_rule.get("enabled", True)),
+                    "require_low_traffic": bool(raw_rule.get("require_low_traffic", False)),
+                    "message_template": str(raw_rule.get("message_template") or "").strip()
+                    or f"{user_id} 来健身房了，当前人数 {{current_count}}。时间：{{timestamp}}",
+                }
+            )
+            rules[-1]["message_template"] = cls._repair_message_template(
+                rules[-1]["message_template"],
+                "arrival",
+                user_id=user_id,
+            )
+        normalized["user_arrival_rules"] = rules
+        return normalized
+
+    @staticmethod
+    def _repair_message_template(template: str, template_kind: str, user_id: str = "") -> str:
+        cleaned = str(template or "").strip()
+        low_traffic_default = "健身房当前人数 {current_count}，已低于阈值 {threshold}。时间：{timestamp}"
+        arrival_default = f"{user_id} 来健身房了，当前人数 {{current_count}}。时间：{{timestamp}}"
+
+        broken_markers = ("????", "???", "鍋ヨ韩", "鏉ュ仴", "褰撳墠", "鏃堕棿", "锛", "銆")
+        if not cleaned or any(marker in cleaned for marker in broken_markers):
+            return low_traffic_default if template_kind == "low_traffic" else arrival_default
+        return cleaned
+
+    @staticmethod
+    def _normalize_target_type(value: Any) -> str:
+        target_type = str(value or "").strip().lower()
+        if target_type not in {"private", "group"}:
+            return "private"
+        return target_type
+
+    @staticmethod
+    def _clamp_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return fallback
+        return max(minimum, min(maximum, number))
 
     @staticmethod
     def _ensure_storage_dir(cfg: dict[str, Any]) -> None:
@@ -370,6 +481,244 @@ class DataStore:
         return items
 
 
+class QQNotificationManager:
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+
+    def handle_snapshot(self, cfg: dict[str, Any], previous_entry: dict[str, Any] | None, current_entry: dict[str, Any]) -> None:
+        qq_cfg = ConfigManager._normalize_qq_notification(cfg.get("qq_notification"))
+        if not qq_cfg.get("enabled"):
+            return
+        if not previous_entry:
+            return
+        if not qq_cfg.get("endpoint") or not qq_cfg.get("target_id"):
+            return
+
+        events = self._build_events(qq_cfg, previous_entry, current_entry)
+        if not events:
+            return
+
+        state_path = os.path.join(str(cfg.get("storage_dir") or DEFAULT_CONFIG["storage_dir"]), "notification_state.json")
+        cooldown_seconds = max(0, _to_int(qq_cfg.get("cooldown_minutes"), 15) * 60)
+
+        with self._lock:
+            state = self._load_state(state_path)
+            changed = False
+            now = datetime.now()
+
+            for event in events:
+                if not self._can_send(state, event["key"], now, cooldown_seconds):
+                    continue
+                self._send_message(qq_cfg, event["message"])
+                state.setdefault("sent_at", {})[event["key"]] = now.isoformat()
+                changed = True
+
+            if changed:
+                self._save_state(state_path, state)
+
+    def _build_events(
+        self,
+        qq_cfg: dict[str, Any],
+        previous_entry: dict[str, Any],
+        current_entry: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        events: list[dict[str, str]] = []
+        previous_people = self._people_map(previous_entry.get("using_man"))
+        current_people = self._people_map(current_entry.get("using_man"))
+        previous_count = _entry_people_count(previous_entry, previous_people)
+        current_count = _entry_people_count(current_entry, current_people)
+        current_time = _entry_timestamp(current_entry) or datetime.now()
+        previous_time = _entry_timestamp(previous_entry) or current_time
+        timestamp = str(current_entry.get("timestamp") or current_time.strftime("%Y-%m-%d %H:%M:%S"))
+
+        low_traffic = qq_cfg.get("low_traffic") or {}
+        low_traffic_context = self._low_traffic_context(low_traffic, current_count, timestamp)
+        threshold = _to_int(low_traffic.get("threshold"), 4)
+        current_low_traffic = self._matches_low_traffic(low_traffic, current_count, current_time)
+        previous_low_traffic = self._matches_low_traffic(low_traffic, previous_count, previous_time)
+
+        if bool(low_traffic.get("enabled")) and current_low_traffic and not previous_low_traffic:
+            events.append(
+                {
+                    "key": (
+                        f"low_traffic:{threshold}:"
+                        f"{low_traffic_context['window_start']}:{low_traffic_context['window_end']}"
+                    ),
+                    "message": self._render_message(
+                        str(low_traffic.get("message_template") or ""),
+                        low_traffic_context,
+                    ),
+                }
+            )
+
+        for rule in qq_cfg.get("user_arrival_rules") or []:
+            if not rule.get("enabled"):
+                continue
+            user_id = str(rule.get("user_id") or "")
+            if not user_id or user_id in previous_people or user_id not in current_people:
+                continue
+            if bool(rule.get("require_low_traffic")) and not current_low_traffic:
+                continue
+
+            person = current_people[user_id]
+            display_name = str(person.get("nickname") or person.get("name") or rule.get("label") or f"ID {user_id}")
+            event_values = {
+                "user_id": user_id,
+                "user_name": display_name,
+                "label": str(rule.get("label") or ""),
+                "minutes": _to_int(person.get("minutes"), 0),
+                "current_count": current_count,
+                "timestamp": timestamp,
+                "threshold": threshold,
+                "window_start": low_traffic_context["window_start"],
+                "window_end": low_traffic_context["window_end"],
+            }
+            events.append(
+                {
+                    "key": (
+                        f"user_arrival:{user_id}:"
+                        f"lt-{1 if bool(rule.get('require_low_traffic')) else 0}:"
+                        f"{low_traffic_context['window_start']}:{low_traffic_context['window_end']}:{threshold}"
+                    ),
+                    "message": self._render_message(
+                        str(rule.get("message_template") or ""),
+                        event_values,
+                    ),
+                }
+            )
+
+        return events
+
+    @staticmethod
+    def _people_map(people: Any) -> dict[str, dict[str, Any]]:
+        items: dict[str, dict[str, Any]] = {}
+        for person in people or []:
+            person_id = str((person or {}).get("id") or "").strip()
+            if person_id:
+                items[person_id] = person
+        return items
+
+    @staticmethod
+    def _render_message(template: str, values: dict[str, Any]) -> str:
+        safe_values = {key: str(value) for key, value in values.items()}
+        try:
+            return template.format_map(_SafeFormatDict(safe_values))
+        except Exception:
+            return template
+
+    @staticmethod
+    def _matches_low_traffic(low_traffic: dict[str, Any], current_count: int, current_time: datetime) -> bool:
+        threshold = _to_int(low_traffic.get("threshold"), 4)
+        start_time = _normalize_time_text(low_traffic.get("start_time"), fallback="00:00")
+        end_time = _normalize_time_text(low_traffic.get("end_time"), fallback="00:00")
+        return current_count <= threshold and _is_within_time_range(current_time, start_time, end_time)
+
+    @staticmethod
+    def _low_traffic_context(low_traffic: dict[str, Any], current_count: int, timestamp: str) -> dict[str, Any]:
+        start_time = _normalize_time_text(low_traffic.get("start_time"), fallback="00:00")
+        end_time = _normalize_time_text(low_traffic.get("end_time"), fallback="00:00")
+        return {
+            "current_count": current_count,
+            "threshold": _to_int(low_traffic.get("threshold"), 4),
+            "timestamp": timestamp,
+            "window_start": start_time,
+            "window_end": end_time,
+        }
+
+    @staticmethod
+    def _load_state(path: str) -> dict[str, Any]:
+        if not os.path.exists(path):
+            return {"sent_at": {}}
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return {"sent_at": {}}
+        if not isinstance(payload, dict):
+            return {"sent_at": {}}
+        sent_at = payload.get("sent_at")
+        if not isinstance(sent_at, dict):
+            sent_at = {}
+        return {"sent_at": {str(key): str(value) for key, value in sent_at.items()}}
+
+    @staticmethod
+    def _save_state(path: str, payload: dict[str, Any]) -> None:
+        temp_path = f"{path}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        os.replace(temp_path, path)
+
+    @staticmethod
+    def _can_send(state: dict[str, Any], key: str, now: datetime, cooldown_seconds: int) -> bool:
+        if cooldown_seconds <= 0:
+            return True
+        last_sent = str((state.get("sent_at") or {}).get(key) or "").strip()
+        if not last_sent:
+            return True
+        parsed = _parse_timestamp(last_sent)
+        if parsed is None:
+            try:
+                parsed = datetime.fromisoformat(last_sent)
+            except ValueError:
+                return True
+        return (now - parsed).total_seconds() >= cooldown_seconds
+
+    def _send_message(self, qq_cfg: dict[str, Any], message: str) -> None:
+        url, payload = self._build_request(qq_cfg, message)
+        headers = {}
+        access_token = str(qq_cfg.get("access_token") or "").strip()
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+
+        response = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=_to_int(qq_cfg.get("timeout_seconds"), 10),
+        )
+        response.raise_for_status()
+        try:
+            response_payload = response.json()
+        except ValueError:
+            return
+        status = str(response_payload.get("status") or "").lower()
+        retcode = response_payload.get("retcode")
+        if (status and status != "ok") or (retcode not in (None, 0)):
+            raise RuntimeError(f"QQ notification failed: {response_payload}")
+
+    @staticmethod
+    def _build_request(qq_cfg: dict[str, Any], message: str) -> tuple[str, dict[str, Any]]:
+        endpoint = str(qq_cfg.get("endpoint") or "").rstrip("/")
+        target_type = str(qq_cfg.get("target_type") or "private")
+        target_id = _coerce_target_id(qq_cfg.get("target_id"))
+
+        if endpoint.endswith("/send_msg"):
+            payload = {
+                "message_type": target_type,
+                "message": message,
+                "auto_escape": False,
+            }
+            payload["user_id" if target_type == "private" else "group_id"] = target_id
+            return endpoint, payload
+
+        if endpoint.endswith("/send_private_msg") or endpoint.endswith("/send_group_msg"):
+            payload = {"message": message, "auto_escape": False}
+            if endpoint.endswith("/send_private_msg"):
+                payload["user_id"] = target_id
+            else:
+                payload["group_id"] = target_id
+            return endpoint, payload
+
+        if target_type == "group":
+            return f"{endpoint}/send_group_msg", {"group_id": target_id, "message": message, "auto_escape": False}
+        return f"{endpoint}/send_private_msg", {"user_id": target_id, "message": message, "auto_escape": False}
+
+
+class _SafeFormatDict(dict[str, str]):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
 def build_url(api_base: str, shop_id: int) -> str:
     return f"{api_base}/auth/run/queryShopDetail?page=1&pageSize=10&shopId={shop_id}"
 
@@ -387,11 +736,72 @@ def fetch_gym_status(api_base: str, shop_id: int, timeout: int = 10) -> dict[str
     }
 
 
+def _entry_people_count(entry: dict[str, Any], people_map: dict[str, dict[str, Any]] | None = None) -> int:
+    if people_map is None:
+        people_map = QQNotificationManager._people_map(entry.get("using_man"))
+    return _to_int(entry.get("people_num"), len(people_map))
+
+
+def _entry_timestamp(entry: dict[str, Any] | None) -> datetime | None:
+    if not entry:
+        return None
+    return _parse_timestamp(entry.get("timestamp"))
+
+
+def _coerce_target_id(value: Any) -> int | str:
+    text = str(value or "").strip()
+    if text.isdigit():
+        try:
+            return int(text)
+        except ValueError:
+            return text
+    return text
+
+
 def _to_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_time_text(value: Any, fallback: str = "00:00", legacy_hour: Any | None = None) -> str:
+    text = str(value or "").strip()
+    if text:
+        parts = text.split(":", 1)
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            hour = max(0, min(23, int(parts[0])))
+            minute = max(0, min(59, int(parts[1])))
+            return f"{hour:02d}:{minute:02d}"
+        if text.isdigit():
+            hour = max(0, min(23, int(text)))
+            return f"{hour:02d}:00"
+
+    if legacy_hour is not None and str(legacy_hour).strip():
+        try:
+            hour = max(0, min(23, int(legacy_hour)))
+            return f"{hour:02d}:00"
+        except (TypeError, ValueError):
+            pass
+
+    return fallback
+
+
+def _time_text_to_minutes(value: Any) -> int:
+    normalized = _normalize_time_text(value)
+    hour_text, minute_text = normalized.split(":", 1)
+    return int(hour_text) * 60 + int(minute_text)
+
+
+def _is_within_time_range(moment: datetime, start_time: str, end_time: str) -> bool:
+    current_minutes = (moment.hour * 60) + moment.minute
+    start_minutes = _time_text_to_minutes(start_time)
+    end_minutes = _time_text_to_minutes(end_time)
+    if start_minutes == end_minutes:
+        return True
+    if start_minutes < end_minutes:
+        return start_minutes <= current_minutes < end_minutes
+    return current_minutes >= start_minutes or current_minutes < end_minutes
 
 
 def _get_http_session() -> requests.Session:

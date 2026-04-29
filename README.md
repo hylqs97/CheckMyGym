@@ -12,6 +12,7 @@ CheckMyGym is a lightweight Flask dashboard for tracking gym occupancy. It polls
 - Added cached parsing and cached summary generation for `gym_data.jsonl` to reduce repeated disk reads.
 - Reused a shared `requests.Session()` for upstream polling to reduce connection setup overhead.
 - Hardened the daemon script so stale Windows PID files do not cause false "already running" results.
+- Added server-side QQ notifications for time-windowed low-traffic alerts, watched member arrivals, and combined `low traffic AND user arrival` rules.
 
 ## Requirements
 
@@ -79,6 +80,7 @@ python scripts/run_daemon.py stop
 - `host`: `dual`, `0.0.0.0`, `::`, or `127.0.0.1`
 - `port`: HTTP listen port
 - `favorites`: tracked member ids
+- `qq_notification`: QQ push settings, time-windowed low-traffic rule, and watched arrival rules
 
 ## API Endpoints
 
@@ -91,6 +93,35 @@ python scripts/run_daemon.py stop
 - `GET /api/favorites`: list favorite ids
 - `POST /api/favorites`: add or remove a favorite
 - `GET /api/health`: basic service status
+
+## QQ Notifications
+
+The dashboard can now send QQ messages after each poll by calling a OneBot-compatible HTTP bot API such as NapCat or go-cqhttp.
+
+Configure these fields in the web UI:
+
+- `QQ Endpoint`: for example `http://127.0.0.1:3000`, `http://127.0.0.1:3000/send_msg`, or a direct `send_private_msg` / `send_group_msg` endpoint
+- `Access Token`: optional bearer token for the bot API
+- `Target Type`: `private` or `group`
+- `Target ID`: QQ number for private chat or group id for group chat
+- `Cooldown (min)`: suppresses repeated pushes for the same alert key within the cooldown window
+
+Supported rules:
+
+- Low-traffic alert: triggers when the current snapshot enters the configured low-traffic condition for the selected time window
+- User arrival alert: triggers when a watched user was absent in the previous snapshot and appears in the current snapshot
+- Combined rule: an arrival rule can also require the low-traffic condition to be satisfied at the same moment, expressing `watched user arrives AND current count is below threshold during the configured time window`
+
+Available message placeholders:
+
+- Low-traffic template: `{current_count}`, `{threshold}`, `{timestamp}`, `{window_start}`, `{window_end}`
+- User-arrival template: `{user_name}`, `{user_id}`, `{label}`, `{minutes}`, `{current_count}`, `{timestamp}`, `{threshold}`, `{window_start}`, `{window_end}`
+
+Notes:
+
+- Notifications are sent by the server after polling, so the browser does not need to stay open.
+- The first snapshot after service startup does not send alerts because there is no previous sample to compare against.
+- The low-traffic time window and threshold are reusable by arrival rules even if standalone low-traffic push is disabled.
 
 ## Project Layout
 

@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+from copy import deepcopy
 import logging
 import os
 import threading
@@ -11,7 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, make_response, render_template, request
 from werkzeug.serving import make_server
 
-from gym_service import ConfigManager, DataStore, fetch_gym_status
+from gym_service import ConfigManager, DataStore, QQNotificationManager, fetch_gym_status
 
 LOGGER = logging.getLogger("checkmygym")
 if not LOGGER.handlers:
@@ -21,9 +22,9 @@ APP_DATA_LIMIT = 2000
 scheduler: BackgroundScheduler | None = None
 store: DataStore | None = None
 config_mgr = ConfigManager()
+notification_mgr = QQNotificationManager()
 _runtime_lock = threading.Lock()
 _runtime_started = False
-
 
 
 def get_favorite_ids() -> set[str]:
@@ -31,12 +32,10 @@ def get_favorite_ids() -> set[str]:
     return {str(value) for value in cfg.get("favorites", []) if str(value).strip()}
 
 
-
 def save_favorite_ids(favorites: set[str]) -> None:
-    cfg = config_mgr.load().copy()
+    cfg = deepcopy(config_mgr.load())
     cfg["favorites"] = sorted({str(value) for value in favorites if str(value).strip()})
     config_mgr.save(cfg)
-
 
 
 def is_within_hours(cfg: dict[str, Any], now: datetime | None = None) -> bool:
@@ -49,14 +48,12 @@ def is_within_hours(cfg: dict[str, Any], now: datetime | None = None) -> bool:
     return hour >= start or hour < end
 
 
-
 def _get_store() -> DataStore:
     global store
     if store is None:
         cfg = config_mgr.load()
         store = DataStore(str(cfg["storage_dir"]))
     return store
-
 
 
 def build_dashboard_payload(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -67,7 +64,6 @@ def build_dashboard_payload(cfg: dict[str, Any] | None = None) -> dict[str, Any]
         "end": int(cfg.get("open_hour_end", 23)),
     }
     return payload
-
 
 
 def create_app() -> Flask:
@@ -93,7 +89,7 @@ def create_app() -> Flask:
     @app.post("/api/config")
     def api_update_config():
         payload = request.get_json(force=True, silent=True) or {}
-        cfg = config_mgr.load().copy()
+        cfg = deepcopy(config_mgr.load())
         changed = False
 
         for key in ("storage_dir", "poll_interval_minutes", "shop_id", "api_base", "open_hour_start", "open_hour_end"):
@@ -111,6 +107,11 @@ def create_app() -> Flask:
                 cfg[key] = value
                 changed = True
 
+        if "qq_notification" in payload and isinstance(payload.get("qq_notification"), dict):
+            if payload["qq_notification"] != cfg.get("qq_notification"):
+                cfg["qq_notification"] = payload["qq_notification"]
+                changed = True
+
         if cfg.get("open_hour_start", 6) == cfg.get("open_hour_end", 23):
             adjusted_end = (int(cfg["open_hour_start"]) + 1) % 24
             if adjusted_end != cfg.get("open_hour_end"):
@@ -122,6 +123,7 @@ def create_app() -> Flask:
             global store
             store = DataStore(str(cfg["storage_dir"]))
             restart_scheduler()
+            cfg = config_mgr.load()
 
         return jsonify({"ok": True, "config": cfg})
 
@@ -169,18 +171,22 @@ def create_app() -> Flask:
     return app
 
 
-
 def do_poll() -> None:
     cfg = config_mgr.load()
     if not is_within_hours(cfg):
         return
 
     try:
+        previous_entries = _get_store().load_all(limit=1)
+        previous_entry = previous_entries[-1] if previous_entries else None
         entry = fetch_gym_status(str(cfg["api_base"]), int(cfg["shop_id"]))
         _get_store().append(entry)
+        try:
+            notification_mgr.handle_snapshot(cfg, previous_entry, entry)
+        except Exception:
+            LOGGER.exception("QQ notification dispatch failed")
     except Exception:
         LOGGER.exception("Polling failed")
-
 
 
 def start_scheduler() -> None:
@@ -205,7 +211,6 @@ def start_scheduler() -> None:
     threading.Thread(target=do_poll, daemon=True, name="initial-poll").start()
 
 
-
 def restart_scheduler() -> None:
     global scheduler
     if scheduler:
@@ -215,7 +220,6 @@ def restart_scheduler() -> None:
             LOGGER.exception("Failed to stop scheduler cleanly")
         scheduler = None
     start_scheduler()
-
 
 
 def ensure_runtime_started() -> None:
@@ -231,7 +235,6 @@ def ensure_runtime_started() -> None:
         _runtime_started = True
 
 
-
 def _normalize_host(value: str | None) -> str:
     host = (value or "").strip()
     if not host:
@@ -239,7 +242,6 @@ def _normalize_host(value: str | None) -> str:
     if host.lower() in {"dual", "both"}:
         return "dual"
     return host
-
 
 
 def _run_dual_stack(app: Flask, port: int) -> None:
@@ -278,7 +280,6 @@ def _run_dual_stack(app: Flask, port: int) -> None:
                 server.shutdown()
             except Exception:
                 LOGGER.exception("Failed to shut down listener cleanly")
-
 
 
 def run_http_server(app: Flask, host: str, port: int, debug_mode: bool) -> None:

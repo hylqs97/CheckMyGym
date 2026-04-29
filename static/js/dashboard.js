@@ -1,19 +1,13 @@
-﻿(function () {
+(function () {
   const state = {
     config: null,
     data: null,
     hourScope: "all",
-    notifyEnabled: false,
     formDirty: false,
     refreshTimer: null,
-    lastNotifyAt: 0,
   };
 
   const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const notifyStorageKey = "checkmygym-notify-enabled";
-  const notifyThreshold = 4;
-  const notifyCooldownMs = 5 * 60 * 1000;
-
   const elements = {};
 
   document.addEventListener("DOMContentLoaded", init);
@@ -21,7 +15,6 @@
   async function init() {
     bindElements();
     bindEvents();
-    loadNotifyPreference();
     setFeedback("Loading dashboard...");
 
     try {
@@ -39,7 +32,6 @@
 
   function bindElements() {
     const ids = [
-      "notify-toggle",
       "refresh-now",
       "poll-now",
       "save-config",
@@ -61,6 +53,20 @@
       "api_base",
       "open_hour_start",
       "open_hour_end",
+      "qq_enabled",
+      "qq_endpoint",
+      "qq_access_token",
+      "qq_target_type",
+      "qq_target_id",
+      "qq_timeout_seconds",
+      "qq_cooldown_minutes",
+      "low_traffic_enabled",
+      "low_traffic_threshold",
+      "low_traffic_start_time",
+      "low_traffic_end_time",
+      "low_traffic_message_template",
+      "arrival-rules-list",
+      "add-arrival-rule",
     ];
 
     ids.forEach((id) => {
@@ -96,26 +102,29 @@
       await saveConfig();
     });
 
+    elements["config-form"].addEventListener("input", () => {
+      state.formDirty = true;
+    });
+
+    elements["config-form"].addEventListener("change", () => {
+      state.formDirty = true;
+    });
+
     elements["hour-scope"].addEventListener("change", (event) => {
       state.hourScope = event.target.value;
       renderHourBars();
     });
 
-    [
-      "storage_dir",
-      "poll_interval_minutes",
-      "shop_id",
-      "api_base",
-      "open_hour_start",
-      "open_hour_end",
-    ].forEach((id) => {
-      elements[id].addEventListener("input", () => {
-        state.formDirty = true;
-      });
-    });
-
-    elements["notify-toggle"].addEventListener("click", async () => {
-      await toggleNotifications();
+    elements["add-arrival-rule"].addEventListener("click", () => {
+      const row = createArrivalRuleRow();
+      const list = elements["arrival-rules-list"];
+      list.classList.remove("empty-state");
+      if (list.dataset.empty === "1") {
+        list.innerHTML = "";
+        list.dataset.empty = "0";
+      }
+      list.appendChild(row);
+      state.formDirty = true;
     });
   }
 
@@ -145,6 +154,23 @@
       api_base: elements["api_base"].value.trim(),
       open_hour_start: clamp(toNumber(elements["open_hour_start"].value, 6), 0, 23),
       open_hour_end: clamp(toNumber(elements["open_hour_end"].value, 23), 0, 23),
+      qq_notification: {
+        enabled: elements["qq_enabled"].checked,
+        endpoint: elements["qq_endpoint"].value.trim(),
+        access_token: elements["qq_access_token"].value.trim(),
+        target_type: elements["qq_target_type"].value === "group" ? "group" : "private",
+        target_id: elements["qq_target_id"].value.trim(),
+        timeout_seconds: clamp(toNumber(elements["qq_timeout_seconds"].value, 10), 3, 60),
+        cooldown_minutes: clamp(toNumber(elements["qq_cooldown_minutes"].value, 15), 0, 1440),
+        low_traffic: {
+          enabled: elements["low_traffic_enabled"].checked,
+          threshold: Math.max(0, toNumber(elements["low_traffic_threshold"].value, 4)),
+          start_time: normalizeTimeInput(elements["low_traffic_start_time"].value, "00:00"),
+          end_time: normalizeTimeInput(elements["low_traffic_end_time"].value, "00:00"),
+          message_template: elements["low_traffic_message_template"].value.trim(),
+        },
+        user_arrival_rules: collectArrivalRules(),
+      },
     };
 
     try {
@@ -166,6 +192,19 @@
     }
   }
 
+  function collectArrivalRules() {
+    const rows = Array.from(elements["arrival-rules-list"].querySelectorAll("[data-arrival-rule]"));
+    return rows
+      .map((row) => ({
+        user_id: row.querySelector("[data-field='user_id']").value.trim(),
+        label: row.querySelector("[data-field='label']").value.trim(),
+        enabled: row.querySelector("[data-field='enabled']").checked,
+        require_low_traffic: row.querySelector("[data-field='require_low_traffic']").checked,
+        message_template: row.querySelector("[data-field='message_template']").value.trim(),
+      }))
+      .filter((item) => item.user_id);
+  }
+
   async function toggleFavorite(userId, favorite) {
     try {
       await fetchJson("/api/favorites", {
@@ -185,8 +224,6 @@
     renderFavoriteRecords();
     renderWeekdayBars();
     renderHourBars();
-    updateNotifyButton();
-    maybeNotifyLowTraffic();
   }
 
   function renderStats() {
@@ -377,12 +414,145 @@
       return;
     }
 
+    const qq = state.config.qq_notification || {};
+    const lowTraffic = qq.low_traffic || {};
+
     elements["storage_dir"].value = state.config.storage_dir || "";
     elements["poll_interval_minutes"].value = toNumber(state.config.poll_interval_minutes, 5);
     elements["shop_id"].value = toNumber(state.config.shop_id, 218);
     elements["api_base"].value = state.config.api_base || "";
     elements["open_hour_start"].value = toNumber(state.config.open_hour_start, 6);
     elements["open_hour_end"].value = toNumber(state.config.open_hour_end, 23);
+
+    elements["qq_enabled"].checked = Boolean(qq.enabled);
+    elements["qq_endpoint"].value = qq.endpoint || "";
+    elements["qq_access_token"].value = qq.access_token || "";
+    elements["qq_target_type"].value = qq.target_type === "group" ? "group" : "private";
+    elements["qq_target_id"].value = qq.target_id || "";
+    elements["qq_timeout_seconds"].value = toNumber(qq.timeout_seconds, 10);
+    elements["qq_cooldown_minutes"].value = toNumber(qq.cooldown_minutes, 15);
+
+    elements["low_traffic_enabled"].checked = Boolean(lowTraffic.enabled);
+    elements["low_traffic_threshold"].value = toNumber(lowTraffic.threshold, 4);
+    elements["low_traffic_start_time"].value = normalizeTimeInput(lowTraffic.start_time, "00:00");
+    elements["low_traffic_end_time"].value = normalizeTimeInput(lowTraffic.end_time, "00:00");
+    elements["low_traffic_message_template"].value = lowTraffic.message_template || "";
+
+    renderArrivalRules(Array.isArray(qq.user_arrival_rules) ? qq.user_arrival_rules : []);
+  }
+
+  function renderArrivalRules(rules) {
+    const list = elements["arrival-rules-list"];
+    list.innerHTML = "";
+
+    if (!rules.length) {
+      list.textContent = "No arrival rules yet.";
+      list.classList.add("empty-state");
+      list.dataset.empty = "1";
+      return;
+    }
+
+    list.dataset.empty = "0";
+    list.classList.remove("empty-state");
+    rules.forEach((rule) => {
+      list.appendChild(createArrivalRuleRow(rule));
+    });
+  }
+
+  function createArrivalRuleRow(rule) {
+    const data = rule || {};
+    const wrapper = document.createElement("article");
+    wrapper.className = "arrival-rule-card";
+    wrapper.dataset.arrivalRule = "1";
+
+    const top = document.createElement("div");
+    top.className = "arrival-rule-top";
+
+    const enabled = document.createElement("label");
+    enabled.className = "checkbox-row";
+    const enabledInput = document.createElement("input");
+    enabledInput.type = "checkbox";
+    enabledInput.checked = data.enabled !== false;
+    enabledInput.dataset.field = "enabled";
+    enabled.appendChild(enabledInput);
+    const enabledLabel = document.createElement("span");
+    enabledLabel.textContent = "Enabled";
+    enabled.appendChild(enabledLabel);
+    top.appendChild(enabled);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "button secondary small-button";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => {
+      wrapper.remove();
+      if (!elements["arrival-rules-list"].querySelector("[data-arrival-rule]")) {
+        renderArrivalRules([]);
+      }
+      state.formDirty = true;
+    });
+    top.appendChild(removeButton);
+    wrapper.appendChild(top);
+
+    const grid = document.createElement("div");
+    grid.className = "rule-grid";
+
+    grid.appendChild(createRuleField("User ID", "user_id", data.user_id || "", false));
+    grid.appendChild(createRuleField("Label (optional)", "label", data.label || "", false));
+    grid.appendChild(
+      createRuleCheckboxField(
+        "Require Low-Traffic Condition (AND)",
+        "require_low_traffic",
+        Boolean(data.require_low_traffic)
+      )
+    );
+    grid.appendChild(
+      createRuleField(
+        "Message Template",
+        "message_template",
+        data.message_template || "",
+        true
+      )
+    );
+
+    wrapper.appendChild(grid);
+    return wrapper;
+  }
+
+  function createRuleField(labelText, fieldName, value, multiline) {
+    const label = document.createElement("label");
+    label.className = multiline ? "form-span-2" : "";
+
+    const title = document.createElement("span");
+    title.textContent = labelText;
+    label.appendChild(title);
+
+    const control = multiline ? document.createElement("textarea") : document.createElement("input");
+    if (!multiline) {
+      control.type = "text";
+    } else {
+      control.rows = 3;
+    }
+    control.value = value || "";
+    control.dataset.field = fieldName;
+    label.appendChild(control);
+    return label;
+  }
+
+  function createRuleCheckboxField(labelText, fieldName, checked) {
+    const label = document.createElement("label");
+    label.className = "checkbox-field";
+
+    const title = document.createElement("span");
+    title.textContent = labelText;
+    label.appendChild(title);
+
+    const control = document.createElement("input");
+    control.type = "checkbox";
+    control.checked = Boolean(checked);
+    control.dataset.field = fieldName;
+    label.appendChild(control);
+    return label;
   }
 
   function favoriteSet() {
@@ -398,9 +568,13 @@
       image.alt = name || "Member avatar";
       image.loading = "lazy";
       image.referrerPolicy = "no-referrer";
-      image.addEventListener("error", () => {
-        image.replaceWith(createAvatar("", name));
-      }, { once: true });
+      image.addEventListener(
+        "error",
+        () => {
+          image.replaceWith(createAvatar("", name));
+        },
+        { once: true }
+      );
       return image;
     }
 
@@ -434,101 +608,6 @@
     const maxMinutes = toNumber(record && record.max_minutes, 0);
     const isCurrent = Boolean(record && record.current);
     return (isCurrent ? "Live" : "Session") + ": " + start + " -> " + end + " | peak " + String(maxMinutes) + " min";
-  }
-
-  function loadNotifyPreference() {
-    if (!("Notification" in window)) {
-      updateNotifyButton();
-      return;
-    }
-
-    try {
-      const saved = window.localStorage.getItem(notifyStorageKey);
-      if (saved === "1" && Notification.permission === "granted") {
-        state.notifyEnabled = true;
-      }
-    } catch (error) {
-      console.warn(error);
-    }
-    updateNotifyButton();
-  }
-
-  async function toggleNotifications() {
-    if (!("Notification" in window)) {
-      setFeedback("This browser does not support notifications.", true);
-      return;
-    }
-
-    if (state.notifyEnabled) {
-      state.notifyEnabled = false;
-      try {
-        window.localStorage.removeItem(notifyStorageKey);
-      } catch (error) {
-        console.warn(error);
-      }
-      updateNotifyButton();
-      setFeedback("Low-traffic alerts disabled.");
-      return;
-    }
-
-    let permission = Notification.permission;
-    if (permission === "default") {
-      permission = await Notification.requestPermission();
-    }
-
-    if (permission !== "granted") {
-      setFeedback("Notification permission was not granted.", true);
-      return;
-    }
-
-    state.notifyEnabled = true;
-    state.lastNotifyAt = 0;
-    try {
-      window.localStorage.setItem(notifyStorageKey, "1");
-    } catch (error) {
-      console.warn(error);
-    }
-    updateNotifyButton();
-    setFeedback("Low-traffic alerts enabled.");
-  }
-
-  function updateNotifyButton() {
-    if (!("Notification" in window)) {
-      elements["notify-toggle"].textContent = "Browser Alerts Unsupported";
-      elements["notify-toggle"].disabled = true;
-      return;
-    }
-
-    elements["notify-toggle"].disabled = false;
-    elements["notify-toggle"].textContent = state.notifyEnabled
-      ? "Disable Low-Traffic Alerts"
-      : "Enable Low-Traffic Alerts";
-  }
-
-  function maybeNotifyLowTraffic() {
-    if (!state.notifyEnabled || !("Notification" in window) || Notification.permission !== "granted") {
-      return;
-    }
-
-    const currentCount = toNumber(state.data && state.data.current_count, -1);
-    if (currentCount < 0 || currentCount > notifyThreshold) {
-      return;
-    }
-
-    const now = Date.now();
-    if (now - state.lastNotifyAt < notifyCooldownMs) {
-      return;
-    }
-
-    state.lastNotifyAt = now;
-    try {
-      new Notification("CheckMyGym", {
-        body: "Low traffic detected: " + String(currentCount) + " people currently in the gym.",
-        tag: "checkmygym-low-traffic",
-      });
-    } catch (error) {
-      console.error(error);
-    }
   }
 
   function setButtonBusy(button, busy, label) {
@@ -579,6 +658,23 @@
 
   function padHour(value, fallback) {
     return String(toNumber(value, fallback)).padStart(2, "0");
+  }
+
+  function normalizeTimeInput(value, fallback) {
+    const text = String(value || "").trim();
+    if (/^\d{2}:\d{2}$/.test(text)) {
+      return text;
+    }
+    if (/^\d{1,2}:\d{1,2}$/.test(text)) {
+      const parts = text.split(":");
+      const hour = clamp(toNumber(parts[0], 0), 0, 23);
+      const minute = clamp(toNumber(parts[1], 0), 0, 59);
+      return String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+    }
+    if (/^\d{1,2}$/.test(text)) {
+      return String(clamp(toNumber(text, 0), 0, 23)).padStart(2, "0") + ":00";
+    }
+    return fallback;
   }
 
   function delay(ms) {
