@@ -162,7 +162,7 @@ class ConfigManager:
                     "enabled": bool(raw_rule.get("enabled", True)),
                     "require_low_traffic": bool(raw_rule.get("require_low_traffic", False)),
                     "message_template": str(raw_rule.get("message_template") or "").strip()
-                    or "用户 {user_id} 来健身房了，当前人数 {current_count}。时间：{timestamp}",
+                    or "{user_name}（ID: {user_id}）来健身房了，当前人数 {current_count}。时间：{timestamp}",
                 }
             )
             rules[-1]["message_template"] = cls._repair_message_template(
@@ -177,7 +177,7 @@ class ConfigManager:
     def _repair_message_template(template: str, template_kind: str, user_id: str = "") -> str:
         cleaned = str(template or "").strip()
         low_traffic_default = "健身房当前人数 {current_count}，已低于阈值 {threshold}。时间：{timestamp}"
-        arrival_default = "用户 {user_id} 来健身房了，当前人数 {current_count}。时间：{timestamp}"
+        arrival_default = "{user_name}（ID: {user_id}）来健身房了，当前人数 {current_count}。时间：{timestamp}"
 
         broken_markers = ("????", "???", "鍋ヨ韩", "鏉ュ仴", "褰撳墠", "鏃堕棿", "锛", "銆")
         if not cleaned or any(marker in cleaned for marker in broken_markers):

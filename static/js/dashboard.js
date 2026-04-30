@@ -1,4 +1,5 @@
 (function () {
+  const DEFAULT_ARRIVAL_MESSAGE_TEMPLATE = "{user_name}（ID: {user_id}）来健身房了，当前人数 {current_count}。时间：{timestamp}";
   const state = {
     config: null,
     data: null,
@@ -515,7 +516,7 @@
       createRuleField(
         "消息模板",
         "message_template",
-        data.message_template || "",
+        data.message_template || DEFAULT_ARRIVAL_MESSAGE_TEMPLATE,
         true
       )
     );
