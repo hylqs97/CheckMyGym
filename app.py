@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import ipaddress
 import logging
 import os
 import threading
@@ -19,6 +20,7 @@ if not LOGGER.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 APP_DATA_LIMIT = 2000
+QQ_STATUS_COMMANDS = {"健身房当前信息", "当前信息", "健身房信息"}
 scheduler: BackgroundScheduler | None = None
 store: DataStore | None = None
 config_mgr = ConfigManager()
@@ -64,6 +66,148 @@ def build_dashboard_payload(cfg: dict[str, Any] | None = None) -> dict[str, Any]
         "end": int(cfg.get("open_hour_end", 23)),
     }
     return payload
+
+
+def fetch_and_store_snapshot(cfg: dict[str, Any]) -> dict[str, Any]:
+    entry = fetch_gym_status(str(cfg["api_base"]), int(cfg["shop_id"]))
+    _get_store().append(entry)
+    return entry
+
+
+def build_status_message(entry: dict[str, Any], stale_prefix: str = "") -> str:
+    raw = entry.get("raw") or {}
+    timestamp = str(entry.get("timestamp") or "未知")
+    current_count = int(entry.get("people_num") or 0)
+    treadmill_using = int((raw.get("treadmill_using") or 0))
+    treadmill_num = int((raw.get("treadmill_num") or 0))
+    shop_name = str(raw.get("shop_name") or "健身房")
+    temperature = raw.get("room_temperature")
+    if temperature in (None, ""):
+        temperature = raw.get("temperature")
+    pm25 = raw.get("pm25")
+    co2 = raw.get("co2")
+    people = entry.get("using_man") or []
+
+    lines = []
+    if stale_prefix:
+        lines.append(stale_prefix)
+    lines.extend(
+        [
+            f"{shop_name} 当前信息",
+            f"时间：{timestamp}",
+            f"当前人数：{current_count}",
+        ]
+    )
+    if treadmill_num > 0:
+        lines.append(f"跑步机：{treadmill_using}/{treadmill_num} 在用")
+    elif treadmill_using > 0:
+        lines.append(f"跑步机在用：{treadmill_using}")
+
+    env_parts: list[str] = []
+    if temperature not in (None, ""):
+        env_parts.append(f"温度 {temperature}")
+    if pm25 not in (None, ""):
+        env_parts.append(f"PM2.5 {pm25}")
+    if co2 not in (None, ""):
+        env_parts.append(f"CO2 {co2}")
+    if env_parts:
+        lines.append("环境：" + " | ".join(env_parts))
+
+    if not people:
+        lines.append("在场用户：当前无人")
+        return "\n".join(lines)
+
+    lines.append("在场用户：")
+    for person in people[:10]:
+        person_id = str(person.get("id") or "--")
+        person_name = str(person.get("nickname") or person.get("name") or f"ID {person_id}")
+        minutes = int(person.get("minutes") or 0)
+        lines.append(f"- {person_name}（ID: {person_id}，{minutes} 分钟）")
+    if len(people) > 10:
+        lines.append(f"- 其余 {len(people) - 10} 人未展开")
+    return "\n".join(lines)
+
+
+def _is_loopback_request(remote_addr: str | None) -> bool:
+    if not remote_addr:
+        return False
+    text = str(remote_addr).strip()
+    if text.startswith("::ffff:"):
+        text = text[7:]
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return False
+
+
+def _extract_message_text(payload: dict[str, Any]) -> str:
+    raw_message = payload.get("raw_message")
+    if isinstance(raw_message, str) and raw_message.strip():
+        return raw_message.strip()
+
+    message = payload.get("message")
+    if isinstance(message, str):
+        return message.strip()
+    if isinstance(message, list):
+        parts: list[str] = []
+        for segment in message:
+            if not isinstance(segment, dict):
+                continue
+            if str(segment.get("type") or "") != "text":
+                continue
+            data = segment.get("data") or {}
+            parts.append(str(data.get("text") or ""))
+        return "".join(parts).strip()
+    return ""
+
+
+def _normalize_command_text(message: str) -> str:
+    return "".join(str(message or "").split())
+
+
+def handle_qq_command_event(event: dict[str, Any]) -> None:
+    if str(event.get("post_type") or "") != "message":
+        return
+    if str(event.get("message_type") or "") != "private":
+        return
+    if str(event.get("sub_type") or "") not in {"friend", "normal", ""}:
+        return
+
+    command_text = _normalize_command_text(_extract_message_text(event))
+    if command_text not in QQ_STATUS_COMMANDS:
+        return
+
+    sender_id = str(event.get("user_id") or "").strip()
+    if not sender_id:
+        return
+
+    cfg = config_mgr.load()
+    qq_cfg = ConfigManager._normalize_qq_notification(cfg.get("qq_notification"))
+    if not qq_cfg.get("endpoint"):
+        LOGGER.warning("Ignoring QQ command because no QQ endpoint is configured")
+        return
+
+    LOGGER.info("Handling QQ status command from %s", sender_id)
+
+    try:
+        entry = fetch_and_store_snapshot(cfg)
+        message = build_status_message(entry)
+    except Exception:
+        LOGGER.exception("Failed to fetch fresh gym status for QQ command")
+        cached = _get_store().load_all(limit=1)
+        if not cached:
+            message = "暂时无法获取健身房当前信息，请稍后再试。"
+        else:
+            message = build_status_message(cached[-1], stale_prefix="实时获取失败，以下为最近一次缓存：")
+
+    reply_cfg = deepcopy(qq_cfg)
+    reply_cfg["target_type"] = "private"
+    reply_cfg["target_id"] = sender_id
+
+    try:
+        notification_mgr._send_message(reply_cfg, message)
+    except Exception:
+        LOGGER.exception("Failed to reply to QQ status command")
 
 
 def create_app() -> Flask:
@@ -168,6 +312,23 @@ def create_app() -> Flask:
             }
         )
 
+    @app.post("/api/qq/events")
+    def api_qq_events():
+        if not _is_loopback_request(request.remote_addr):
+            return jsonify({"ok": False, "error": "forbidden"}), 403
+
+        payload = request.get_json(force=False, silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"ok": True})
+
+        threading.Thread(
+            target=handle_qq_command_event,
+            args=(payload,),
+            daemon=True,
+            name="qq-command-event",
+        ).start()
+        return jsonify({"ok": True})
+
     return app
 
 
@@ -179,8 +340,7 @@ def do_poll() -> None:
     try:
         previous_entries = _get_store().load_all(limit=1)
         previous_entry = previous_entries[-1] if previous_entries else None
-        entry = fetch_gym_status(str(cfg["api_base"]), int(cfg["shop_id"]))
-        _get_store().append(entry)
+        entry = fetch_and_store_snapshot(cfg)
         try:
             notification_mgr.handle_snapshot(cfg, previous_entry, entry)
         except Exception:

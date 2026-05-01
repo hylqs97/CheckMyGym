@@ -93,6 +93,7 @@ python scripts/run_daemon.py stop
 - `GET /api/favorites`: list favorite ids
 - `POST /api/favorites`: add or remove a favorite
 - `GET /api/health`: basic service status
+- `POST /api/qq/events`: receive OneBot message events from the local QQ bot
 
 ## QQ Notifications
 
@@ -122,6 +123,7 @@ Notes:
 - Notifications are sent by the server after polling, so the browser does not need to stay open.
 - The first snapshot after service startup does not send alerts because there is no previous sample to compare against.
 - The low-traffic time window and threshold are reusable by arrival rules even if standalone low-traffic push is disabled.
+- If NapCat is configured to POST private-message events to `/api/qq/events`, sending `健身房当前信息` to the bot will trigger an immediate QQ reply with the latest gym snapshot.
 
 ## Project Layout
 
