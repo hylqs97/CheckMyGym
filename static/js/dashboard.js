@@ -39,6 +39,7 @@
       "config-form",
       "hour-scope",
       "current-count",
+      "current-treadmill-using",
       "favorite-count",
       "sample-count",
       "last-updated",
@@ -233,6 +234,7 @@
     const lastTimestamp = data.last_timestamp || "暂无采样";
 
     elements["current-count"].textContent = String(toNumber(data.current_count, 0));
+    elements["current-treadmill-using"].textContent = String(toNumber(data.current_treadmill_using, 0));
     elements["favorite-count"].textContent = String(favorites.length);
     elements["sample-count"].textContent = String(toNumber(data.sample_count, 0));
     elements["last-updated"].textContent = lastTimestamp;

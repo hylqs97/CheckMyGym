@@ -309,6 +309,7 @@ class DataStore:
                 for day, hours in (summary.get("weekday_hour_avg", {}) or {}).items()
             },
             "current_count": int(summary.get("current_count", 0)),
+            "current_treadmill_using": int(summary.get("current_treadmill_using", 0)),
             "sample_count": int(summary.get("sample_count", 0)),
         }
 
@@ -357,8 +358,10 @@ class DataStore:
         }
 
         latest_people = 0
+        latest_treadmill_using = 0
         if latest_entry:
             latest_people = _to_int(latest_entry.get("people_num"), len(current_people))
+            latest_treadmill_using = _to_int((latest_entry.get("raw") or {}).get("treadmill_using"), 0)
 
         return {
             "series": series[-288:],
@@ -368,6 +371,7 @@ class DataStore:
             "last_timestamp": latest_entry.get("timestamp") if latest_entry else None,
             "weekday_hour_avg": weekday_hour_avg,
             "current_count": latest_people,
+            "current_treadmill_using": latest_treadmill_using,
             "sample_count": len(entries),
         }
 
