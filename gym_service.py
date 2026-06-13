@@ -733,15 +733,34 @@ def build_url(api_base: str, shop_id: int) -> str:
     return f"{api_base}/auth/run/queryShopDetail?page=1&pageSize=10&shopId={shop_id}"
 
 
+def build_people_url(api_base: str, shop_id: int, page: int = 1, page_size: int = 100) -> str:
+    return f"{api_base}/my/info/queryUsingMan?currentPage={page}&pageSize={page_size}&shopId={shop_id}"
+
+
+def fetch_current_people(api_base: str, shop_id: int, timeout: int = 10) -> list[dict[str, Any]]:
+    response = _get_http_session().post(build_people_url(api_base, shop_id), timeout=timeout)
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("flag") != 1:
+        return []
+    data = payload.get("data")
+    return data if isinstance(data, list) else []
+
+
 def fetch_gym_status(api_base: str, shop_id: int, timeout: int = 10) -> dict[str, Any]:
     response = _get_http_session().get(build_url(api_base, shop_id), timeout=timeout)
     response.raise_for_status()
     payload = response.json().get("data", {})
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    people = payload.get("using_man", []) or []
+    try:
+        people = fetch_current_people(api_base, shop_id, timeout=timeout)
+    except (requests.RequestException, ValueError, json.JSONDecodeError):
+        pass
     return {
         "timestamp": timestamp,
         "people_num": _to_int(payload.get("people_num"), 0),
-        "using_man": payload.get("using_man", []) or [],
+        "using_man": people,
         "raw": payload,
     }
 

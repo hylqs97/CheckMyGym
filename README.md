@@ -13,6 +13,7 @@ CheckMyGym is a lightweight Flask dashboard for tracking gym occupancy. It polls
 - Reused a shared `requests.Session()` for upstream polling to reduce connection setup overhead.
 - Hardened the daemon script so stale Windows PID files do not cause false "already running" results.
 - Added server-side QQ notifications for time-windowed low-traffic alerts, watched member arrivals, and combined `low traffic AND user arrival` rules.
+- Restored current-member names by combining the upstream shop-detail endpoint with the upstream current-member list endpoint.
 
 ## Requirements
 
@@ -81,6 +82,15 @@ python scripts/run_daemon.py stop
 - `port`: HTTP listen port
 - `favorites`: tracked member ids
 - `qq_notification`: QQ push settings, time-windowed low-traffic rule, and watched arrival rules
+
+## Upstream Polling
+
+Each scheduled poll currently combines two upstream endpoints under `api_base`:
+
+- `GET /auth/run/queryShopDetail?page=1&pageSize=10&shopId={shop_id}`: total people count and shop status
+- `POST /my/info/queryUsingMan?currentPage=1&pageSize=100&shopId={shop_id}`: current member list with nicknames, ids, avatars, and stay minutes
+
+If the member-list endpoint fails temporarily, the server still keeps the shop-detail snapshot and falls back to any member list included there.
 
 ## API Endpoints
 
@@ -161,7 +171,14 @@ Each line is a JSON object, for example:
 {
   "timestamp": "2026-03-01 08:30:00",
   "people_num": 12,
-  "using_man": []
+  "using_man": [
+    {
+      "id": 1956124,
+      "nickname": "云天",
+      "minutes": 58,
+      "avatar": "https://example.com/avatar.png"
+    }
+  ]
 }
 ```
 
