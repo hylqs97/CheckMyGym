@@ -1,38 +1,46 @@
 (function () {
   const DEFAULT_ARRIVAL_MESSAGE_TEMPLATE = "{user_name}（ID: {user_id}）来健身房了，当前人数 {current_count}。时间：{timestamp}";
+  const AUTO_REFRESH_INTERVAL_MS = 60000;
+  const REQUEST_TIMEOUT_MS = 15000;
+  const THEME_STORAGE_KEY = "checkmygym-theme";
+
   const state = {
     config: null,
     data: null,
     hourScope: "all",
+    theme: "dark",
     formDirty: false,
+    loadingDepth: 0,
     refreshTimer: null,
+    refreshInFlight: null,
+    refreshAbortController: null,
   };
 
-  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
   const elements = {};
 
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", () => {
+    init().catch((error) => {
+      console.error(error);
+      setFeedback(getErrorMessage(error), true);
+    });
+  });
 
   async function init() {
     bindElements();
+    initTheme();
     bindEvents();
+    setAutoRefreshStatus();
     setFeedback("正在加载页面...");
-
-    try {
-      await bootstrap();
-      state.refreshTimer = window.setInterval(() => {
-        refreshData(false).catch((error) => {
-          console.error(error);
-        });
-      }, 60000);
-    } catch (error) {
-      console.error(error);
-      setFeedback(getErrorMessage(error), true);
-    }
+    await bootstrap();
+    startAutoRefresh();
+    setFeedback("页面已就绪。");
   }
 
   function bindElements() {
     const ids = [
+      "auto-refresh-status",
+      "theme-toggle",
       "refresh-now",
       "poll-now",
       "save-config",
@@ -77,26 +85,23 @@
   }
 
   function bindEvents() {
-    elements["refresh-now"].addEventListener("click", () => {
-      refreshData(true).catch((error) => {
-        console.error(error);
-        setFeedback(getErrorMessage(error), true);
+    elements["theme-toggle"].addEventListener("click", () => {
+      toggleTheme();
+    });
+
+    elements["refresh-now"].addEventListener("click", async () => {
+      await withButtonBusy(elements["refresh-now"], "刷新中...", "立即刷新", async () => {
+        await refreshData({ showFeedback: true, preferLatest: true });
       });
     });
 
     elements["poll-now"].addEventListener("click", async () => {
-      try {
-        setButtonBusy(elements["poll-now"], true, "轮询中...");
+      await withButtonBusy(elements["poll-now"], "轮询中...", "立即轮询", async () => {
         await fetchJson("/api/poll", { method: "POST" });
-        await delay(900);
-        await refreshData(false);
-        setFeedback("轮询完成。");
-      } catch (error) {
-        console.error(error);
-        setFeedback(getErrorMessage(error), true);
-      } finally {
-        setButtonBusy(elements["poll-now"], false, "立即轮询");
-      }
+        await delay(600);
+        await refreshData({ showFeedback: false, preferLatest: true });
+        setFeedback("轮询完成并更新数据。", false);
+      });
     });
 
     elements["config-form"].addEventListener("submit", async (event) => {
@@ -113,7 +118,7 @@
     });
 
     elements["hour-scope"].addEventListener("change", (event) => {
-      state.hourScope = event.target.value;
+      state.hourScope = String(event.target.value || "all");
       renderHourBars();
     });
 
@@ -122,29 +127,169 @@
       const list = elements["arrival-rules-list"];
       list.classList.remove("empty-state");
       if (list.dataset.empty === "1") {
-        list.innerHTML = "";
+        list.textContent = "";
         list.dataset.empty = "0";
       }
       list.appendChild(row);
       state.formDirty = true;
     });
+
+    elements["current-people-list"].addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-favorite-toggle]");
+      if (!button) {
+        return;
+      }
+      await toggleFavorite(String(button.dataset.userId || ""), button.dataset.favoriteNext === "1");
+    });
+
+    elements["favorite-records-list"].addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-favorite-toggle]");
+      if (!button) {
+        return;
+      }
+      await toggleFavorite(String(button.dataset.userId || ""), false);
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      setAutoRefreshStatus();
+    });
+
+    window.addEventListener("beforeunload", () => {
+      if (state.refreshTimer) {
+        window.clearInterval(state.refreshTimer);
+      }
+      if (state.refreshAbortController) {
+        state.refreshAbortController.abort();
+      }
+    });
   }
 
   async function bootstrap() {
-    const payload = await fetchJson("/api/bootstrap");
-    state.config = payload.config || {};
-    state.data = payload.data || {};
-    fillConfigForm();
-    render();
-      setFeedback("页面已就绪。");
+    beginDashboardLoading();
+    try {
+      const payload = await fetchJson("/api/bootstrap");
+      state.config = payload.config || {};
+      state.data = payload.data || {};
+      fillConfigForm();
+      render();
+    } finally {
+      endDashboardLoading();
+    }
   }
 
-  async function refreshData(showFeedback) {
-    const data = await fetchJson("/api/data");
-    state.data = data || {};
-    render();
-    if (showFeedback) {
-      setFeedback("数据已刷新。");
+  function startAutoRefresh() {
+    if (state.refreshTimer) {
+      window.clearInterval(state.refreshTimer);
+    }
+
+    state.refreshTimer = window.setInterval(() => {
+      if (document.hidden) {
+        return;
+      }
+      refreshData({ showFeedback: false, preferLatest: false }).catch((error) => {
+        if (isAbortError(error)) {
+          return;
+        }
+        console.error(error);
+      });
+    }, AUTO_REFRESH_INTERVAL_MS);
+  }
+
+  function setAutoRefreshStatus() {
+    const target = elements["auto-refresh-status"];
+    if (!target) {
+      return;
+    }
+    const paused = Boolean(document.hidden);
+    target.textContent = paused ? "自动刷新：暂停（后台）" : "自动刷新：开启";
+    target.classList.toggle("off", paused);
+  }
+
+  function initTheme() {
+    const current = document.documentElement.dataset.theme;
+    let theme = current === "light" ? "light" : "dark";
+    try {
+      const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (stored === "light" || stored === "dark") {
+        theme = stored;
+      }
+    } catch (error) {
+      console.warn(error);
+    }
+    applyTheme(theme, false);
+  }
+
+  function toggleTheme() {
+    applyTheme(state.theme === "dark" ? "light" : "dark", true);
+  }
+
+  function applyTheme(theme, persist) {
+    const next = theme === "light" ? "light" : "dark";
+    state.theme = next;
+    document.documentElement.dataset.theme = next;
+    updateThemeToggleButton(next);
+    if (!persist) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+
+  function updateThemeToggleButton(theme) {
+    const button = elements["theme-toggle"];
+    if (!button) {
+      return;
+    }
+    const isLight = theme === "light";
+    button.setAttribute("aria-checked", isLight ? "true" : "false");
+    button.setAttribute("aria-label", isLight ? "切换深色模式" : "切换浅色模式");
+    button.title = isLight ? "切换深色模式" : "切换浅色模式";
+  }
+
+  async function refreshData(options) {
+    const opts = options || {};
+    const preferLatest = opts.preferLatest !== false;
+    const showFeedback = Boolean(opts.showFeedback);
+
+    if (preferLatest && state.refreshAbortController) {
+      state.refreshAbortController.abort();
+    }
+
+    if (state.refreshInFlight && !preferLatest) {
+      await state.refreshInFlight;
+      return;
+    }
+
+    const abortController = new AbortController();
+    state.refreshAbortController = abortController;
+    beginDashboardLoading();
+    state.refreshInFlight = (async () => {
+      const data = await fetchJson("/api/data", { signal: abortController.signal });
+      if (abortController.signal.aborted) {
+        return;
+      }
+      state.data = data || {};
+      render();
+      if (showFeedback) {
+        setFeedback("数据已刷新。", false);
+      }
+    })();
+
+    try {
+      await state.refreshInFlight;
+    } catch (error) {
+      if (!isAbortError(error)) {
+        throw error;
+      }
+    } finally {
+      endDashboardLoading();
+      if (state.refreshAbortController === abortController) {
+        state.refreshAbortController = null;
+      }
+      state.refreshInFlight = null;
     }
   }
 
@@ -175,8 +320,7 @@
       },
     };
 
-    try {
-      setButtonBusy(elements["save-config"], true, "保存中...");
+    await withButtonBusy(elements["save-config"], "保存中...", "保存配置", async () => {
       const response = await fetchJson("/api/config", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -184,14 +328,9 @@
       state.config = response.config || payload;
       state.formDirty = false;
       fillConfigForm();
-      await refreshData(false);
-      setFeedback("配置已保存。");
-    } catch (error) {
-      console.error(error);
-      setFeedback(getErrorMessage(error), true);
-    } finally {
-      setButtonBusy(elements["save-config"], false, "保存配置");
-    }
+      await refreshData({ showFeedback: false, preferLatest: true });
+      setFeedback("配置已保存。", false);
+    });
   }
 
   function collectArrivalRules() {
@@ -208,12 +347,15 @@
   }
 
   async function toggleFavorite(userId, favorite) {
+    if (!userId) {
+      return;
+    }
     try {
       await fetchJson("/api/favorites", {
         method: "POST",
         body: JSON.stringify({ id: userId, favorite: favorite }),
       });
-      await refreshData(false);
+      await refreshData({ showFeedback: false, preferLatest: true });
     } catch (error) {
       console.error(error);
       setFeedback(getErrorMessage(error), true);
@@ -228,18 +370,117 @@
     renderHourBars();
   }
 
+  function beginDashboardLoading() {
+    state.loadingDepth += 1;
+    if (state.loadingDepth > 1) {
+      return;
+    }
+    renderDashboardSkeletons();
+  }
+
+  function endDashboardLoading() {
+    if (state.loadingDepth > 0) {
+      state.loadingDepth -= 1;
+    }
+    if (state.loadingDepth > 0) {
+      return;
+    }
+    setListBusy(elements["current-people-list"], false);
+    setListBusy(elements["favorite-records-list"], false);
+    setListBusy(elements["weekday-bars"], false);
+    setListBusy(elements["hour-bars"], false);
+  }
+
+  function renderDashboardSkeletons() {
+    renderListSkeleton(elements["current-people-list"], 4);
+    renderListSkeleton(elements["favorite-records-list"], 3);
+    renderBarSkeleton(elements["weekday-bars"], 7);
+    renderBarSkeleton(elements["hour-bars"], 8);
+  }
+
+  function renderListSkeleton(target, count) {
+    if (!target) {
+      return;
+    }
+    setListBusy(target, true);
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < count; i += 1) {
+      const card = document.createElement("div");
+      card.className = "skeleton-card";
+
+      const avatar = document.createElement("div");
+      avatar.className = "skeleton-avatar";
+
+      const content = document.createElement("div");
+      content.className = "skeleton-content";
+
+      const lineTop = document.createElement("div");
+      lineTop.className = "skeleton-line w-80";
+
+      const lineBottom = document.createElement("div");
+      lineBottom.className = "skeleton-line w-60";
+
+      const dot = document.createElement("div");
+      dot.className = "skeleton-dot";
+
+      content.appendChild(lineTop);
+      content.appendChild(lineBottom);
+      card.appendChild(avatar);
+      card.appendChild(content);
+      card.appendChild(dot);
+      fragment.appendChild(card);
+    }
+    target.replaceChildren(fragment);
+  }
+
+  function renderBarSkeleton(target, count) {
+    if (!target) {
+      return;
+    }
+    setListBusy(target, true);
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < count; i += 1) {
+      const row = document.createElement("div");
+      row.className = "skeleton-bar-row";
+
+      const label = document.createElement("div");
+      label.className = "skeleton-bar-label";
+
+      const track = document.createElement("div");
+      track.className = "skeleton-bar-track";
+
+      const value = document.createElement("div");
+      value.className = "skeleton-bar-value";
+
+      row.appendChild(label);
+      row.appendChild(track);
+      row.appendChild(value);
+      fragment.appendChild(row);
+    }
+    target.replaceChildren(fragment);
+  }
+
+  function setListBusy(target, busy) {
+    if (!target) {
+      return;
+    }
+    target.classList.toggle("is-loading", busy);
+    if (busy) {
+      target.classList.remove("empty-state");
+    }
+    target.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+
   function renderStats() {
     const data = state.data || {};
     const favorites = Array.isArray(data.favorites) ? data.favorites : [];
-    const lastTimestamp = data.last_timestamp || "暂无采样";
+    const openHours = data.open_hours || {};
 
     elements["current-count"].textContent = String(toNumber(data.current_count, 0));
     elements["current-treadmill-using"].textContent = String(toNumber(data.current_treadmill_using, 0));
     elements["favorite-count"].textContent = String(favorites.length);
     elements["sample-count"].textContent = String(toNumber(data.sample_count, 0));
-    elements["last-updated"].textContent = lastTimestamp;
-
-    const openHours = data.open_hours || {};
+    elements["last-updated"].textContent = data.last_timestamp || "暂无采样";
     elements["open-hours-label"].textContent =
       "营业时间：" + padHour(openHours.start, 6) + ":00 - " + padHour(openHours.end, 23) + ":00";
   }
@@ -248,7 +489,6 @@
     const people = Array.isArray(state.data && state.data.current_people) ? state.data.current_people : [];
     const favorites = favoriteSet();
     const list = elements["current-people-list"];
-    list.innerHTML = "";
 
     if (!people.length) {
       list.textContent = "当前健身房无人。";
@@ -257,10 +497,10 @@
     }
 
     list.classList.remove("empty-state");
+    const fragment = document.createDocumentFragment();
     people.forEach((person) => {
       const card = document.createElement("article");
       card.className = "person-card";
-
       card.appendChild(createAvatar(person.avatar, person.name));
 
       const meta = document.createElement("div");
@@ -269,27 +509,26 @@
       const name = document.createElement("div");
       name.className = "person-name";
       name.textContent = person.name || "未知用户";
-      meta.appendChild(name);
 
       const detail = document.createElement("div");
       detail.className = "person-detail";
       detail.textContent = "已锻炼：" + String(toNumber(person.minutes, 0)) + " 分钟";
-      meta.appendChild(detail);
 
+      meta.appendChild(name);
+      meta.appendChild(detail);
       card.appendChild(meta);
 
-      const button = createStarButton(favorites.has(String(person.id)), () => {
-        toggleFavorite(String(person.id), !favorites.has(String(person.id)));
-      });
-      card.appendChild(button);
-      list.appendChild(card);
+      const isFavorite = favorites.has(String(person.id));
+      card.appendChild(createStarButton(isFavorite, String(person.id), !isFavorite));
+      fragment.appendChild(card);
     });
+
+    list.replaceChildren(fragment);
   }
 
   function renderFavoriteRecords() {
     const records = Array.isArray(state.data && state.data.favorite_records) ? state.data.favorite_records : [];
     const list = elements["favorite-records-list"];
-    list.innerHTML = "";
 
     if (!records.length) {
       list.textContent = "暂无收藏用户记录。";
@@ -298,10 +537,10 @@
     }
 
     list.classList.remove("empty-state");
+    const fragment = document.createDocumentFragment();
     records.forEach((item) => {
       const card = document.createElement("article");
       card.className = "favorite-card";
-
       card.appendChild(createAvatar(item.avatar, item.name));
 
       const meta = document.createElement("div");
@@ -310,23 +549,19 @@
       const name = document.createElement("div");
       name.className = "favorite-name";
       name.textContent = item.name || ("ID " + String(item.id || ""));
-      meta.appendChild(name);
 
       const userId = document.createElement("div");
       userId.className = "favorite-detail";
       userId.textContent = "用户 ID：" + String(item.id || "--");
-      meta.appendChild(userId);
 
       const status = document.createElement("span");
       status.className = item.is_current ? "badge" : "badge dim";
       status.textContent = item.is_current ? "当前在馆" : "最近出现：" + (item.last_seen || "未知");
-      meta.appendChild(status);
 
       const detail = document.createElement("div");
       detail.className = "favorite-detail";
       detail.textContent =
         "最近锻炼：" + String(toNumber(item.last_minutes, 0)) + " 分钟 | 记录次数：" + String(toNumber(item.record_count, 0));
-      meta.appendChild(detail);
 
       const sessions = document.createElement("div");
       sessions.className = "session-list";
@@ -342,21 +577,26 @@
           sessions.appendChild(line);
         });
       }
+
+      meta.appendChild(name);
+      meta.appendChild(userId);
+      meta.appendChild(status);
+      meta.appendChild(detail);
       meta.appendChild(sessions);
-
       card.appendChild(meta);
-
-      const button = createStarButton(true, () => {
-        toggleFavorite(String(item.id), false);
-      });
-      card.appendChild(button);
-      list.appendChild(card);
+      card.appendChild(createStarButton(true, String(item.id || ""), false));
+      fragment.appendChild(card);
     });
+
+    list.replaceChildren(fragment);
   }
 
   function renderWeekdayBars() {
     const values = state.data && state.data.weekday_avg ? state.data.weekday_avg : {};
-    const rows = labels.map((label, index) => ({ label: label, value: toNumber(values[String(index)], 0) }));
+    const rows = weekdayLabels.map((label, index) => ({
+      label: label,
+      value: toNumber(values[String(index)], 0),
+    }));
     renderBarList(elements["weekday-bars"], rows);
   }
 
@@ -367,8 +607,8 @@
     const start = toNumber(openHours.start, 6);
     const end = toNumber(openHours.end, 23);
     const rows = [];
-
     const span = start === end ? 24 : ((end - start + 24) % 24 || 24);
+
     for (let offset = 0; offset < span; offset += 1) {
       const hour = (start + offset) % 24;
       rows.push({
@@ -381,7 +621,6 @@
   }
 
   function renderBarList(target, rows) {
-    target.innerHTML = "";
     if (!rows.length) {
       target.textContent = "暂无图表数据。";
       target.classList.add("empty-state");
@@ -390,6 +629,7 @@
 
     target.classList.remove("empty-state");
     const maxValue = rows.reduce((max, row) => Math.max(max, row.value), 0) || 1;
+    const fragment = document.createDocumentFragment();
 
     rows.forEach((row) => {
       const rowElement = document.createElement("div");
@@ -398,23 +638,26 @@
       const label = document.createElement("span");
       label.className = "bar-label";
       label.textContent = row.label;
-      rowElement.appendChild(label);
 
       const track = document.createElement("div");
       track.className = "bar-track";
+
       const fill = document.createElement("div");
       fill.className = "bar-fill";
-      fill.style.width = Math.max(4, Math.round((row.value / maxValue) * 100)) + "%";
+      fill.style.setProperty("--bar-width", Math.max(4, Math.round((row.value / maxValue) * 100)) + "%");
       track.appendChild(fill);
-      rowElement.appendChild(track);
 
       const value = document.createElement("span");
       value.className = "bar-value";
       value.textContent = row.value.toFixed(1);
-      rowElement.appendChild(value);
 
-      target.appendChild(rowElement);
+      rowElement.appendChild(label);
+      rowElement.appendChild(track);
+      rowElement.appendChild(value);
+      fragment.appendChild(rowElement);
     });
+
+    target.replaceChildren(fragment);
   }
 
   function fillConfigForm() {
@@ -451,7 +694,7 @@
 
   function renderArrivalRules(rules) {
     const list = elements["arrival-rules-list"];
-    list.innerHTML = "";
+    list.textContent = "";
 
     if (!rules.length) {
       list.textContent = "还没有到场规则。";
@@ -462,9 +705,11 @@
 
     list.dataset.empty = "0";
     list.classList.remove("empty-state");
+    const fragment = document.createDocumentFragment();
     rules.forEach((rule) => {
-      list.appendChild(createArrivalRuleRow(rule));
+      fragment.appendChild(createArrivalRuleRow(rule));
     });
+    list.replaceChildren(fragment);
   }
 
   function createArrivalRuleRow(rule) {
@@ -504,7 +749,6 @@
 
     const grid = document.createElement("div");
     grid.className = "rule-grid";
-
     grid.appendChild(createRuleField("用户 ID（可用逗号分隔多个）", "user_id", data.user_id || "", false));
     grid.appendChild(createRuleField("备注标签（可选）", "label", data.label || "", false));
     grid.appendChild(
@@ -536,10 +780,10 @@
     label.appendChild(title);
 
     const control = multiline ? document.createElement("textarea") : document.createElement("input");
-    if (!multiline) {
-      control.type = "text";
-    } else {
+    if (multiline) {
       control.rows = 3;
+    } else {
+      control.type = "text";
     }
     control.value = value || "";
     control.dataset.field = fieldName;
@@ -573,7 +817,7 @@
       const image = document.createElement("img");
       image.className = "avatar";
       image.src = url;
-      image.alt = name || "Member avatar";
+      image.alt = name || "用户头像";
       image.loading = "lazy";
       image.referrerPolicy = "no-referrer";
       image.addEventListener(
@@ -592,18 +836,32 @@
     return fallback;
   }
 
-  function createStarButton(active, onClick) {
+  function createStarButton(active, userId, nextFavorite) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "star-button" + (active ? "" : " off");
     button.textContent = active ? "★" : "☆";
     button.setAttribute("aria-label", active ? "取消收藏" : "加入收藏");
-    button.addEventListener("click", onClick);
+    button.dataset.favoriteToggle = "1";
+    button.dataset.userId = userId;
+    button.dataset.favoriteNext = nextFavorite ? "1" : "0";
     return button;
   }
 
+  async function withButtonBusy(button, busyLabel, idleLabel, task) {
+    setButtonBusy(button, true, busyLabel);
+    try {
+      await task();
+    } catch (error) {
+      console.error(error);
+      setFeedback(getErrorMessage(error), true);
+    } finally {
+      setButtonBusy(button, false, idleLabel);
+    }
+  }
+
   function getInitials(name) {
-    const value = (name || "?").trim();
+    const value = String(name || "?").trim();
     if (!value) {
       return "?";
     }
@@ -624,6 +882,9 @@
   }
 
   function setFeedback(message, isError) {
+    if (!elements.feedback) {
+      return;
+    }
     elements.feedback.textContent = message || "";
     elements.feedback.classList.toggle("error", Boolean(isError));
   }
@@ -632,27 +893,70 @@
     if (error && error.message) {
       return error.message;
     }
-    return "请求失败。";
+    return "请求失败，请稍后重试。";
+  }
+
+  function isAbortError(error) {
+    return error && (error.name === "AbortError" || /aborted/i.test(String(error.message || "")));
   }
 
   async function fetchJson(url, options) {
-    const response = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      ...options,
-    });
+    const opts = options || {};
+    const controller = new AbortController();
+    let timedOut = false;
 
-    if (!response.ok) {
-      let text = "";
-      try {
-        text = await response.text();
-      } catch (error) {
-        console.warn(error);
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+
+    const outerSignal = opts.signal;
+    const onOuterAbort = () => {
+      controller.abort();
+    };
+
+    if (outerSignal) {
+      if (outerSignal.aborted) {
+        controller.abort();
+      } else {
+        outerSignal.addEventListener("abort", onOuterAbort, { once: true });
       }
-      throw new Error(text || ("HTTP " + response.status));
     }
 
-    return response.json();
+    try {
+      const response = await fetch(url, {
+        method: opts.method || "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(opts.headers || {}),
+        },
+        body: opts.body,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        let text = "";
+        try {
+          text = await response.text();
+        } catch (error) {
+          console.warn(error);
+        }
+        throw new Error(text || ("HTTP " + response.status));
+      }
+
+      return response.json();
+    } catch (error) {
+      if (timedOut) {
+        throw new Error("请求超时，请稍后重试。");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (outerSignal) {
+        outerSignal.removeEventListener("abort", onOuterAbort);
+      }
+    }
   }
 
   function toNumber(value, fallback) {
