@@ -382,7 +382,27 @@ textarea {
 
 .session-list {
   display: grid;
-  gap: 3px;
+  gap: 6px;
+}
+
+.session-record {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.session-record-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.session-record-range {
+  font-variant-numeric: tabular-nums;
+}
+
+.session-record-duration {
+  white-space: nowrap;
 }
 
 .star-button {

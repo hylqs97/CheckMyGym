@@ -14,6 +14,7 @@ CheckMyGym is a lightweight Flask dashboard for tracking gym occupancy. It polls
 - Hardened the daemon script so stale Windows PID files do not cause false "already running" results.
 - Added server-side QQ notifications for time-windowed low-traffic alerts, watched member arrivals, and combined `low traffic AND user arrival` rules.
 - Restored current-member names by combining the upstream shop-detail endpoint with the upstream current-member list endpoint.
+- Improved favorite-member history on narrow screens with compact same-day time ranges and clear in-gym duration labels.
 
 ## Requirements
 

@@ -572,9 +572,7 @@
         sessions.appendChild(line);
       } else {
         recent.slice(0, 3).forEach((record) => {
-          const line = document.createElement("span");
-          line.textContent = formatSession(record);
-          sessions.appendChild(line);
+          sessions.appendChild(createSessionRecord(record));
         });
       }
 
@@ -868,12 +866,40 @@
     return value.slice(0, 2).toUpperCase();
   }
 
-  function formatSession(record) {
-    const start = record && record.start ? record.start : "--";
-    const end = record && record.end ? record.end : "--";
-    const maxMinutes = toNumber(record && record.max_minutes, 0);
+  function createSessionRecord(record) {
+    const line = document.createElement("div");
+    line.className = "session-record";
+
     const isCurrent = Boolean(record && record.current);
-    return (isCurrent ? "当前时段" : "历史时段") + "：" + start + " -> " + end + " | 峰值 " + String(maxMinutes) + " 分钟";
+    const label = document.createElement("span");
+    label.className = "session-record-label";
+    label.textContent = isCurrent ? "当前时段" : "历史时段";
+    line.appendChild(label);
+
+    const range = document.createElement("span");
+    range.className = "session-record-range";
+    range.textContent = formatSessionRange(record && record.start, record && record.end);
+    line.appendChild(range);
+
+    const duration = document.createElement("span");
+    duration.className = "session-record-duration";
+    duration.textContent = (isCurrent ? "已在馆 " : "在馆 ") + String(toNumber(record && record.max_minutes, 0)) + " 分钟";
+    line.appendChild(duration);
+    return line;
+  }
+
+  function formatSessionRange(start, end) {
+    const startParts = splitTimestamp(start);
+    const endParts = splitTimestamp(end);
+    if (startParts && endParts && startParts.date === endParts.date) {
+      return startParts.date + " " + startParts.time + "–" + endParts.time;
+    }
+    return String(start || "--") + "–" + String(end || "--");
+  }
+
+  function splitTimestamp(value) {
+    const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+    return match ? { date: match[1], time: match[2] } : null;
   }
 
   function setButtonBusy(button, busy, label) {
